@@ -1,0 +1,282 @@
+package eu.klyt.skap.lib
+import android.util.Log
+import java.security.SecureRandom
+import okhttp3.MediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.Response
+import com.google.gson.Gson
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.ArrayList
+
+const val API_URL = "https://skap.klyt.eu/"
+
+// Extension pour convertir ByteArray en représentation Uint8Array
+fun ByteArray.toUint8Array(): List<Int> {
+    return this.map { byte -> byte.toInt() and 0xFF }
+}
+
+fun randomBytes(bytesLength: Int): ByteArray {
+    val random = SecureRandom()
+    val bytes = ByteArray(bytesLength)
+    random.nextBytes(bytes)
+    return bytes
+}
+
+fun encrypt(pass: Password, client: Client): Result<EP> {
+    val encoder = BincodeEncoder();
+    val passb = encoder.encodePassword(pass)
+    val key = blake3(client.kyQ)
+    val cipher = XChaCha20Poly1305Cipher()
+    val c = cipher.encrypt(passb,key)
+    val ciphertext = c.ciphertext
+    val nonce = c.nonce
+    val ep = EP(nonce, null, ciphertext)
+    return Result.success(ep)
+}
+
+fun send(ep: EP, client: Client): EP {
+    val key = blake3(client.kyQ)
+    val cipher = XChaCha20Poly1305Cipher()
+    val c = cipher.encrypt(ep.ciphertext,key)
+    val ciphertext = c.ciphertext
+    val nonce2 = c.nonce
+    val ep2 = EP(ep.nonce1, nonce2, ciphertext)
+    return ep2
+}
+
+fun decrypt(ep: EP, secretKey: ByteArray, kyQ: ByteArray): Result<Password> {
+    val keySecret = blake3(secretKey)
+    val keyKyQ = blake3(kyQ)
+    val cipher = XChaCha20Poly1305Cipher()
+    if (ep.nonce2 == null) {
+        return Result.failure(Exception("Missing nonce2"))
+    }
+    val ciphertext2 = cipher.decrypt(ep.ciphertext,ep.nonce2,keySecret)
+    val nonce = ep.nonce1
+    val plaintext = cipher.decrypt(ciphertext2,nonce,keyKyQ)
+    val pass = Decoder.decodePassword(plaintext)
+    return if (pass == null) {
+        Result.failure(Exception("Failed to Decode Password"))
+    } else {
+        Result.success(pass)
+    }
+}
+
+enum class ShareStatus {
+    Pending,
+    Accepted,
+    Rejected
+}
+
+data class SharedPass(
+    val kem_ct: ByteArray,
+    val ep: EP,
+    val status: ShareStatus
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as SharedPass
+
+        if (!kem_ct.contentEquals(other.kem_ct)) return false
+        if (ep != other.ep) return false
+        if (status != other.status) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = kem_ct.contentHashCode()
+        result = 31 * result + ep.hashCode()
+        result = 31 * result + status.hashCode()
+        return result
+    }
+}
+
+data class SharedByUser(
+    val passId: String,
+    val recipientIds: List<String>
+)
+
+data class SharedByUserEmail(
+    val passId: String,
+    val emails: List<String>,
+    val statuses: List<ShareStatus>? = null
+)
+
+data class ReceivedCK(
+    val email: String,
+    val id: String,
+    val kyP: ByteArray,
+    val kyQ: ByteArray,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as ReceivedCK
+
+        if (email != other.email) return false
+        if (id != other.id) return false
+        if (!kyP.contentEquals(other.kyP)) return false
+        if (!kyQ.contentEquals(other.kyQ)) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = email.hashCode()
+        result = 31 * result + id.hashCode()
+        result = 31 * result + kyP.contentHashCode()
+        result = 31 * result + kyQ.contentHashCode()
+        return result
+    }
+}
+
+data class CreateAccountResult(
+    val clientEx: ClientEx,
+    val encodedFile: ByteArray,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as CreateAccountResult
+
+        if (clientEx != other.clientEx) return false
+        if (!encodedFile.contentEquals(other.encodedFile)) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = clientEx.hashCode()
+        result = 31 * result + encodedFile.contentHashCode()
+        return result
+    }
+}
+
+suspend fun createAccount(email: String): Result<CreateAccountResult> {
+    return withContext(Dispatchers.IO) {
+        try {
+            val mlKem = MlKem1024()
+            val (kyP, kyQ) = mlKem.keygen()
+            val mlDsa = MlDsa87()
+            val (diP, diQ) = mlDsa.keygen()
+            val secret = randomBytes(32)
+            val client = Client(
+                kyP = kyP,
+                kyQ = kyQ,
+                diP = diP,
+                diQ = diQ,
+                secret = secret
+            )
+
+            // Créer l'identité du client
+            val clientId = CK(
+                email = email,
+                id = null,
+                kyP = kyP,
+                diP = diP
+            )
+
+            // Créer le ClientEx
+            var clientEx = ClientEx(
+                c = client,
+                id = clientId
+            )
+
+            // Convertir les tableaux d'octets en objets JSON avec des indices numériques
+            // Conversion en Uint8Array (valeurs non signées de 0 à 255)
+            Log.i(null, "kyP size ${kyP.size} et diP size ${diP.size}")
+            val kyPUint8 = kyP.toUint8Array()
+            val diPUint8 = diP.toUint8Array()
+
+            val clientIdJson = mapOf(
+                "email" to email,
+                "id" to null,
+                "ky_p" to mapOf("bytes" to kyPUint8),
+                "di_p" to mapOf("bytes" to diPUint8)
+            )
+
+            val jsonBody = Gson().toJson(clientIdJson)
+            Log.i(null,"Envoi de la requête: $jsonBody")
+
+            val request = Request.Builder()
+                .url(API_URL + "create_user_json/")
+                .post(jsonBody.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val response = OkHttpClient().newCall(request).execute()
+
+            Log.i(null,"Code de réponse: ${response.code}")
+            val responseBody = response.body?.string()
+            Log.i(null,"Corps de la réponse: $responseBody")
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("Erreur serveur: ${response.code} - ${response.message}"))
+            }
+
+            if (responseBody.isNullOrEmpty()) {
+                return@withContext Result.failure(Exception("Réponse vide du serveur"))
+            }
+
+            try {
+                val responseJson = Gson().fromJson(responseBody, Map::class.java)
+                Log.i(null,"$responseJson")
+                val id = responseJson["id"] as String
+                val email = responseJson["email"] as String
+                Log.i(null, "ky_p ${responseJson["ky_p"]}")
+
+                val kyPBytesMap = (responseJson["ky_p"] as Map<*,*>)["bytes"] as ArrayList<*>
+                val kyQBytesMap = (responseJson["ky_q"] as Map<*, *>)["bytes"] as ArrayList<*>
+
+                val kyP = ByteArray(kyPBytesMap.size) { i ->
+                    when (val value = kyPBytesMap[i]) {
+                        is Double -> value.toInt().toByte()
+                        is Int -> value.toByte()
+                        else -> {throw Exception("Dinguerie")}
+                    }
+
+                }
+
+                val kyQ = ByteArray(kyQBytesMap.size) { i ->
+                    when (val value = kyQBytesMap[i]) {
+                        is Double -> value.toInt().toByte()
+                        is Int -> value.toByte()
+                        else -> {throw Exception("Dinguerie")}
+                    }
+                }
+                
+                val ck = CK(
+                    email = email,
+                    id = createUuid(id),
+                    kyP = kyP,
+                    diP = kyQ  // Notez que nous utilisons kyQ comme diP ici, selon la structure de la réponse
+                )
+
+                clientEx.id = ck
+                val encoder = BincodeEncoder()
+                val encodedClientEx = encoder.encodeClientEx(clientEx)
+                val result = CreateAccountResult(clientEx, encodedClientEx)
+                Result.success(result)
+            } catch (e: Exception) {
+                Log.i(null,"Erreur de parsing JSON: ${e.message}")
+                Log.i(null,"JSON reçu: $responseBody")
+                Result.failure(Exception("Erreur de parsing de la réponse: ${e.message}", e))
+            }
+        } catch (e: Exception) {
+            Log.i(null,"Exception: ${e.message}")
+            e.printStackTrace()
+            Result.failure(Exception("Erreur lors de la création du compte: ${e.message}", e))
+        }
+    }
+}
