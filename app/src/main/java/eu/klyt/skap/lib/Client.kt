@@ -237,7 +237,7 @@ suspend fun createAccount(email: String): Result<CreateAccountResult> {
                 Log.i(null, "ky_p ${responseJson["ky_p"]}")
 
                 val kyPBytesMap = (responseJson["ky_p"] as Map<*,*>)["bytes"] as ArrayList<*>
-                val kyQBytesMap = (responseJson["ky_q"] as Map<*, *>)["bytes"] as ArrayList<*>
+                val diPBytesMap = (responseJson["di_p"] as Map<*, *>)["bytes"] as ArrayList<*>
 
                 val kyP = ByteArray(kyPBytesMap.size) { i ->
                     when (val value = kyPBytesMap[i]) {
@@ -248,19 +248,19 @@ suspend fun createAccount(email: String): Result<CreateAccountResult> {
 
                 }
 
-                val kyQ = ByteArray(kyQBytesMap.size) { i ->
-                    when (val value = kyQBytesMap[i]) {
+                val diP = ByteArray(diPBytesMap.size) { i ->
+                    when (val value = diPBytesMap[i]) {
                         is Double -> value.toInt().toByte()
                         is Int -> value.toByte()
                         else -> {throw Exception("Dinguerie")}
                     }
                 }
-                
+
                 val ck = CK(
                     email = email,
                     id = createUuid(id),
                     kyP = kyP,
-                    diP = kyQ  // Notez que nous utilisons kyQ comme diP ici, selon la structure de la réponse
+                    diP = diP  // Notez que nous utilisons kyQ comme diP ici, selon la structure de la réponse
                 )
 
                 clientEx.id = ck

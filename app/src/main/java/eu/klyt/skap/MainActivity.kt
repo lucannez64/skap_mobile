@@ -455,8 +455,7 @@ fun LoginRegisterScreen() {
                                                     if (d != null) {
                                                         // SAVE FILE
                                                         val encodedFile = d.encodedFile
-                                                        val file = File(context.filesDir, "client.key")
-                                                        file.writeBytes(encodedFile)
+                                                        // ask to save file
                                                         
                                                         registerStatus = "success"
                                                         registerMessage = translations.registerSuccess
