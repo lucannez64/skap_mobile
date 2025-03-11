@@ -215,12 +215,11 @@ class BincodeEncoder(initialSize: Int = 16384) {
         }
     }
 
-    private fun encodeUuid(uuid: Uuid?) {
-        encodeOption(uuid) { u ->
-            ensureCapacity(u.bytes.size)
-            System.arraycopy(u.bytes, 0, buffer, offset, u.bytes.size)
-            offset += u.bytes.size
-        }
+    private fun encodeUuid(uuid: Uuid) {
+        writeUint64(16.toLong())
+        ensureCapacity(16)
+        System.arraycopy(uuid.bytes, 0, buffer, offset, 16)
+        offset += 16
     }
 
     private fun encodeKyPublicKey(key: KyPublicKey) {
@@ -241,7 +240,9 @@ class BincodeEncoder(initialSize: Int = 16384) {
 
     private fun encodeCK(ck: CK) {
         encodeString(ck.email)
-        encodeUuid(ck.id)
+        encodeOption(ck.id) { id ->
+            encodeUuid(id)
+        }
         encodeKyPublicKey(ck.kyP)
         encodeDiPublicKey(ck.diP)
     }
@@ -269,11 +270,11 @@ class BincodeEncoder(initialSize: Int = 16384) {
 
     fun encodeEP(ep: EP): ByteArray {
         offset = 0
+        encodeFixedBytesWithLength(ep.ciphertext)
         encodeFixedBytesWithLength(ep.nonce1)
         encodeOption(ep.nonce2) { nonce2 ->
             encodeFixedBytesWithLength(nonce2)
         }
-        encodeFixedBytesWithLength(ep.ciphertext)
         val result = ByteArray(offset)
         System.arraycopy(buffer, 0, result, 0, offset)
         return result
@@ -523,10 +524,10 @@ object Decoder {
         val client = decodeClient(bytes) ?: return null
         
         // Calculer la position après le client
-        var position = 8 + KY_PUBLIC_KEY_SIZE + 8 + KY_SECRET_KEY_SIZE + 
+        var position = 8 + KY_PUBLIC_KEY_SIZE + 8 + KY_SECRET_KEY_SIZE +
                       8 + DI_PUBLIC_KEY_SIZE + 8 + DI_SECRET_KEY_SIZE + 1
         if (client.secret != null) {
-            position += KYBER_SSBYTES
+            position += KYBER_SSBYTES + 8
         }
         
         // Décoder CK à partir de la position calculée

@@ -1,9 +1,12 @@
 package eu.klyt.skap
 
+import android.app.Activity
 import eu.klyt.skap.lib.createAccount
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,7 +43,12 @@ import eu.klyt.skap.ui.theme.SkapTheme
 import java.io.File
 import java.util.*
 import androidx.lifecycle.lifecycleScope
+import eu.klyt.skap.lib.Decoder
 import kotlinx.coroutines.launch
+import java.io.IOException
+
+var encodedFile: ByteArray? = null
+const val REQUEST_SAVE_FILE = 42
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,6 +61,28 @@ class MainActivity : ComponentActivity() {
                     color = Color(0xFF1D1B21)
                 ) {
                     LoginRegisterScreen()
+                }
+            }
+        }
+    }
+
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_SAVE_FILE && resultCode == RESULT_OK) {
+            data?.data?.let { uri ->
+                try {
+                    contentResolver.openOutputStream(uri)?.use { outputStream ->
+                        outputStream.write(encodedFile)
+                        outputStream.flush()
+                    }
+                    Toast.makeText(this, "Fichier sauvegardé avec succès!", Toast.LENGTH_SHORT).show()
+                } catch (e: IOException) {
+                    Log.e("FileSave", "Error saving file", e)
+                    Toast.makeText(this, "Erreur lors de la sauvegarde du fichier: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -166,11 +196,13 @@ fun LoginRegisterScreen() {
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         selectedFile = uri
+        Log.i(null,"$selectedFile")
         fileError = null
     }
     
     // Obtenir le lifecycleScope pour lancer des coroutines
     val lifecycleOwner = (context as? ComponentActivity)
+    val activity = context as? ComponentActivity
     
     Box(
         modifier = Modifier
@@ -309,11 +341,51 @@ fun LoginRegisterScreen() {
                                     }
                                     
                                     if (isValid) {
-                                        isLoading = true
-                                        // Simulation d'une connexion réussie
-                                        submitStatus = "success"
-                                        isLoading = false
-                                        
+                                        // get the file bytes
+                                        if (selectedFile == null) {
+                                            fileError = if (language == "fr")
+                                                "Veuillez sélectionner un fichier de clé."
+                                            else
+                                                "Please select a key file."
+                                            isValid = false
+                                        } else {
+                                            try {
+                                                // Utiliser ContentResolver pour lire l'URI du fichier
+                                                val fileBytes = context.contentResolver.openInputStream(selectedFile!!)?.use { 
+                                                    it.readBytes() 
+                                                }
+                                                
+                                                if (fileBytes == null) {
+                                                    fileError = if (language == "fr")
+                                                        "Impossible de lire le fichier de clé."
+                                                    else
+                                                        "Unable to read key file."
+                                                    isValid = false
+                                                } else {
+                                                    val decodedFile = Decoder.decodeClientEx(fileBytes)
+                                                    if (decodedFile == null) {
+                                                        fileError = if (language == "fr")
+                                                            "Le fichier de clé est invalide."
+                                                        else
+                                                            "The key file is invalid."
+                                                        isValid = false
+                                                    } else {
+                                                        isLoading = true
+                                                        // Simulation d'une connexion réussie
+                                                        submitStatus = "success"
+                                                        isLoading = false
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                fileError = if (language == "fr")
+                                                    "Erreur lors de la lecture du fichier: ${e.message}"
+                                                else
+                                                    "Error reading file: ${e.message}"
+                                                isValid = false
+                                                Log.e("FileRead", "Error reading file", e)
+                                            }
+                                        }
+
                                         // Dans une vraie application, vous appelleriez votre API d'authentification ici
                                         // et géreriez la réponse
                                     }
@@ -454,9 +526,15 @@ fun LoginRegisterScreen() {
                                                     val d = r.getOrNull()
                                                     if (d != null) {
                                                         // SAVE FILE
-                                                        val encodedFile = d.encodedFile
-                                                        // ask to save file
-                                                        
+                                                        encodedFile = d.encodedFile
+                                                        // encodedFile is a ByteArray
+                                                        // ask to save file with the default file manager
+                                                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                                            addCategory(Intent.CATEGORY_OPENABLE)
+                                                            type = "application/octet-stream" // Replace with appropriate MIME type
+                                                            putExtra(Intent.EXTRA_TITLE, "client.key")
+                                                        }
+                                                        activity?.startActivityForResult(intent, REQUEST_SAVE_FILE)
                                                         registerStatus = "success"
                                                         registerMessage = translations.registerSuccess
                                                     }
