@@ -43,7 +43,7 @@ import eu.klyt.skap.ui.theme.SkapTheme
 import java.io.File
 import java.util.*
 import androidx.lifecycle.lifecycleScope
-import eu.klyt.skap.lib.Decoder
+import eu.klyt.skap.lib.Decoded
 import kotlinx.coroutines.launch
 import java.io.IOException
 
@@ -362,7 +362,7 @@ fun LoginRegisterScreen() {
                                                         "Unable to read key file."
                                                     isValid = false
                                                 } else {
-                                                    val decodedFile = Decoder.decodeClientEx(fileBytes)
+                                                    val decodedFile = Decoded.decodeClientEx(fileBytes)
                                                     if (decodedFile == null) {
                                                         fileError = if (language == "fr")
                                                             "Le fichier de clé est invalide."
@@ -520,6 +520,7 @@ fun LoginRegisterScreen() {
                                                 val r = createAccount(registerEmail)
                                                 if (r.isFailure) {
                                                     println(r)
+                                                    isLoading = false
                                                     registerStatus = "error"
                                                     registerMessage = r.exceptionOrNull()?.message ?: translations.registerError
                                                 } else {
@@ -541,6 +542,7 @@ fun LoginRegisterScreen() {
                                                 }
                                             } catch (e: Exception) {
                                                 registerStatus = "error"
+                                                isLoading = false
                                                 registerMessage = e.message ?: translations.error
                                             } finally {
                                                 isLoading = false

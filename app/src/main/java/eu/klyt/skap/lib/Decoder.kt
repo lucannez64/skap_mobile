@@ -1,12 +1,14 @@
 package eu.klyt.skap.lib
 
 import java.nio.ByteBuffer
+import kotlin.uuid.Uuid as TTID
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 import kotlin.experimental.and
-import com.google.gson.Gson
+import java.io.File
+import java.nio.file.Paths
+import java.util.Arrays
 
-// Constantes pour les tailles des clés
 const val KY_PUBLIC_KEY_SIZE = 1568
 const val KY_SECRET_KEY_SIZE = 3168
 const val DI_PUBLIC_KEY_SIZE = 2592
@@ -32,15 +34,10 @@ data class Uuid(val bytes: ByteArray) {
         return bytes.contentHashCode()
     }
 
+
+    @OptIn(kotlin.uuid.ExperimentalUuidApi::class)
     override fun toString(): String {
-        val sb = StringBuilder()
-        for (i in 0 until 16) {
-            sb.append(String.format("%02x", bytes[i] and 0xFF.toByte()))
-            if (i == 3 || i == 5 || i == 7 || i == 9) {
-                sb.append('-')
-            }
-        }
-        return sb.toString()
+        return TTID.fromByteArray(bytes).toString()
     }
 }
 
@@ -137,11 +134,11 @@ data class ClientEx(
 )
 
 data class Password(
-    val name: String,
-    val username: String?,
     val password: String,
+    val app_id: String?,
+    val username: String,
+    val description: String?,
     val url: String?,
-    val notes: String?,
     val otp: String?
 )
 
@@ -282,16 +279,16 @@ class BincodeEncoder(initialSize: Int = 16384) {
 
     fun encodePassword(password: Password): ByteArray {
         offset = 0
-        encodeString(password.name)
-        encodeOption(password.username) { username ->
-            encodeString(username)
-        }
         encodeString(password.password)
+        encodeOption(password.app_id) { app_id ->
+            encodeString(app_id)
+        }
+        encodeString(password.username)
+        encodeOption(password.description) { description ->
+            encodeString(description)
+        }
         encodeOption(password.url) { url ->
             encodeString(url)
-        }
-        encodeOption(password.notes) { notes ->
-            encodeString(notes)
         }
         encodeOption(password.otp) { otp ->
             encodeString(otp)
@@ -354,65 +351,59 @@ class BincodeEncoder(initialSize: Int = 16384) {
 }
 
 // Fonctions de décodage
-object Decoder {
+object Decoded {
     fun decodePassword(bytes: ByteArray): Password? {
         if (bytes.isEmpty()) return null
         
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        
-        // Lire le nom
-        val nameLength = buffer.getLong().toInt()
-        if (nameLength < 0 || nameLength > bytes.size - buffer.position()) return null
-        val nameBytes = ByteArray(nameLength)
-        buffer.get(nameBytes)
-        val name = String(nameBytes, StandardCharsets.UTF_8)
-        
-        // Lire le nom d'utilisateur (optionnel)
-        val usernamePresent = buffer.get().toInt()
-        var username: String? = null
-        if (usernamePresent == 1) {
-            val usernameLength = buffer.getLong().toInt()
-            if (usernameLength < 0 || usernameLength > bytes.size - buffer.position()) return null
-            val usernameBytes = ByteArray(usernameLength)
-            buffer.get(usernameBytes)
-            username = String(usernameBytes, StandardCharsets.UTF_8)
-        } else if (usernamePresent != 0) {
-            return null // Format incorrect
-        }
-        
         // Lire le mot de passe
         val passwordLength = buffer.getLong().toInt()
-        if (passwordLength < 0 || passwordLength > bytes.size - buffer.position()) return null
         val passwordBytes = ByteArray(passwordLength)
         buffer.get(passwordBytes)
         val password = String(passwordBytes, StandardCharsets.UTF_8)
-        
+
+        val appIdPresent = buffer.get().toInt()
+        var app_id: String? = null
+        if (appIdPresent == 1) {
+            val appIdLength = buffer.getLong().toInt()
+            val appIdBytes = ByteArray(appIdLength)
+            buffer.get(appIdBytes)
+            app_id = String(appIdBytes, StandardCharsets.UTF_8)
+        } else if (appIdPresent != 0) {
+            return null // Format incorrect
+        }
+
+
+
+        // Lire le nom
+        val usernameLength = buffer.getLong().toInt()
+        val usernameBytes = ByteArray(usernameLength)
+        buffer.get(usernameBytes)
+        val username = String(usernameBytes, StandardCharsets.UTF_8)
+        val descriptionPresent = buffer.get().toInt()
+        var description: String? = null
+        if (descriptionPresent == 1) {
+            val descriptionLength = buffer.getLong().toInt()
+            val descriptionBytes = ByteArray(descriptionLength)
+            buffer.get(descriptionBytes)
+            description = String(descriptionBytes, StandardCharsets.UTF_8)
+        } else if (descriptionPresent != 0) {
+            return null // Format incorrect
+        }
+
+
         // Lire l'URL (optionnel)
         val urlPresent = buffer.get().toInt()
         var url: String? = null
         if (urlPresent == 1) {
             val urlLength = buffer.getLong().toInt()
-            if (urlLength < 0 || urlLength > bytes.size - buffer.position()) return null
             val urlBytes = ByteArray(urlLength)
             buffer.get(urlBytes)
             url = String(urlBytes, StandardCharsets.UTF_8)
         } else if (urlPresent != 0) {
             return null // Format incorrect
         }
-        
-        // Lire les notes (optionnel)
-        val notesPresent = buffer.get().toInt()
-        var notes: String? = null
-        if (notesPresent == 1) {
-            val notesLength = buffer.getLong().toInt()
-            if (notesLength < 0 || notesLength > bytes.size - buffer.position()) return null
-            val notesBytes = ByteArray(notesLength)
-            buffer.get(notesBytes)
-            notes = String(notesBytes, StandardCharsets.UTF_8)
-        } else if (notesPresent != 0) {
-            return null // Format incorrect
-        }
-        
+                
         // Lire l'OTP (optionnel)
         val otpPresent = buffer.get().toInt()
         var otp: String? = null
@@ -426,7 +417,7 @@ object Decoder {
             return null // Format incorrect
         }
         
-        return Password(name, username, password, url, notes, otp)
+        return Password(password, app_id, username, description, url, otp)
     }
 
     fun decodeEP(bytes: ByteArray): EP? {
@@ -435,10 +426,9 @@ object Decoder {
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         
         // Lire kemCt
-        val kemCtLength = buffer.getLong().toInt()
-        if (kemCtLength < 0 || kemCtLength > bytes.size - buffer.position()) return null
-        val kemCt = ByteArray(kemCtLength)
-        buffer.get(kemCt)
+        val ciphertextLength = buffer.getLong().toInt()
+        val ciphertext = ByteArray(ciphertextLength)
+        buffer.get(ciphertext)
         
         // Lire nonce1
         val nonce1Length = buffer.getLong().toInt()
@@ -456,125 +446,82 @@ object Decoder {
             buffer.get(nonce2)
         } else if (nonce2Present != 0) {
             return null // Format incorrect
-        }
-        
-        // Lire ciphertext
-        val ciphertextLength = buffer.getLong().toInt()
-        if (ciphertextLength < 0 || ciphertextLength > bytes.size - buffer.position()) return null
-        val ciphertext = ByteArray(ciphertextLength)
-        buffer.get(ciphertext)
-        
+        }        
         return EP(nonce1, nonce2, ciphertext)
     }
 
-    fun decodeClient(bytes: ByteArray): Client? {
-        if (bytes.isEmpty()) return null
-        
+    fun decodeClient(bytes: ByteArray): Pair<Client, ByteBuffer>? {
+        if (bytes.isEmpty()) return null        
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        var position = 0
         
         // Lire kyP
         val kyPLength = buffer.getLong().toInt()
-        position += 8
-        if (kyPLength != KY_PUBLIC_KEY_SIZE) return null
-        if (position + KY_PUBLIC_KEY_SIZE > bytes.size) return null
-        val kyP = bytes.copyOfRange(position, position + KY_PUBLIC_KEY_SIZE)
-        position += KY_PUBLIC_KEY_SIZE
+        val kyP = ByteArray(KY_PUBLIC_KEY_SIZE)
+        buffer.get(kyP)
         
         // Lire kyQ
         val kyQLength = buffer.getLong().toInt()
-        position += 8
-        if (kyQLength != KY_SECRET_KEY_SIZE) return null
-        if (position + KY_SECRET_KEY_SIZE > bytes.size) return null
-        val kyQ = bytes.copyOfRange(position, position + KY_SECRET_KEY_SIZE)
-        position += KY_SECRET_KEY_SIZE
-        
+        val kyQ = ByteArray(KY_SECRET_KEY_SIZE)
+        buffer.get(kyQ)
         // Lire diP
         val diPLength = buffer.getLong().toInt()
-        position += 8
-        if (diPLength != DI_PUBLIC_KEY_SIZE) return null
-        if (position + DI_PUBLIC_KEY_SIZE > bytes.size) return null
-        val diP = bytes.copyOfRange(position, position + DI_PUBLIC_KEY_SIZE)
-        position += DI_PUBLIC_KEY_SIZE
-        
+        val diP = ByteArray(DI_PUBLIC_KEY_SIZE)
+        buffer.get(diP)
         // Lire diQ
         val diQLength = buffer.getLong().toInt()
-        position += 8
-        if (diQLength != DI_SECRET_KEY_SIZE) return null
-        if (position + DI_SECRET_KEY_SIZE > bytes.size) return null
-        val diQ = bytes.copyOfRange(position, position + DI_SECRET_KEY_SIZE)
-        position += DI_SECRET_KEY_SIZE
-        
+        val diQ = ByteArray(DI_SECRET_KEY_SIZE)
+        buffer.get(diQ)
         // Lire secret (optionnel)
-        if (position >= bytes.size) return null
-        val secretPresent = bytes[position++].toInt()
+        val secretPresent = ByteArray(1)
+        buffer.get(secretPresent)
         var secret: ByteArray? = null
-        if (secretPresent == 1) {
-            if (position + KYBER_SSBYTES > bytes.size) return null
-            secret = bytes.copyOfRange(position, position + KYBER_SSBYTES)
-            position += KYBER_SSBYTES
-        } else if (secretPresent != 0) {
-            return null // Format incorrect
+        if (secretPresent[0].toInt() == 1) {
+            secret = ByteArray(KYBER_SSBYTES)
+            buffer.get(secret)
+        } else if (secretPresent[0].toInt() != 0) {
+            return null// Format incorrect
         }
         
-        return Client(kyP, kyQ, diP, diQ, secret)
+        return Pair(Client(kyP, kyQ, diP, diQ, secret), buffer)
     }
 
     fun decodeClientEx(bytes: ByteArray): ClientEx? {
-        val client = decodeClient(bytes) ?: return null
-        
-        // Calculer la position après le client
-        var position = 8 + KY_PUBLIC_KEY_SIZE + 8 + KY_SECRET_KEY_SIZE +
-                      8 + DI_PUBLIC_KEY_SIZE + 8 + DI_SECRET_KEY_SIZE + 1
-        if (client.secret != null) {
-            position += KYBER_SSBYTES + 8
-        }
-        
+        val (client, buffer) = decodeClient(bytes) ?: return null
+        // Calculer la position après le client        
         // Décoder CK à partir de la position calculée
-        val ckBytes = bytes.copyOfRange(position, bytes.size)
-        val ck = decodeCK(ckBytes) ?: return null
+        val ck = decodeCK(buffer) ?: return null
         
         return ClientEx(client, ck)
     }
 
-    private fun decodeCK(bytes: ByteArray): CK? {
-        if (bytes.isEmpty()) return null
-        
-        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        var position = 0
-        
+    private fun decodeCK(buffer: ByteBuffer): CK? {
         // Lire email
         val emailLength = buffer.getLong().toInt()
-        position += 8
-        if (emailLength < 0 || position + emailLength > bytes.size) return null
-        val emailBytes = bytes.copyOfRange(position, position + emailLength)
+        val emailBytes = ByteArray(emailLength)
+        buffer.get(emailBytes)
         val email = String(emailBytes, StandardCharsets.UTF_8)
-        position += emailLength
-        
         // Lire id (optionnel)
-        if (position >= bytes.size) return null
-        val idPresent = bytes[position++].toInt()
+        val idPresent = ByteArray(1)
+        buffer.get(idPresent)
         var id: Uuid? = null
-        if (idPresent == 1) {
-            if (position + 16 > bytes.size) return null
-            val idBytes = bytes.copyOfRange(position, position + 16)
+        if (idPresent[0].toInt() == 1) {
+            val idLength = buffer.getLong().toInt()
+            val idBytes = ByteArray(16)
+            buffer.get(idBytes)
+
             id = Uuid(idBytes)
-            position += 16
-        } else if (idPresent != 0) {
+        } else if (idPresent[0].toInt() != 0) {
             return null // Format incorrect
         }
         
         // Lire kyP
-        position += 8 // Ignorer la longueur (on connaît déjà la taille)
-        if (position + KY_PUBLIC_KEY_SIZE > bytes.size) return null
-        val kyP = bytes.copyOfRange(position, position + KY_PUBLIC_KEY_SIZE)
-        position += KY_PUBLIC_KEY_SIZE
-        
+        val kyPLength = buffer.getLong().toInt()
+        val kyP = ByteArray(KY_PUBLIC_KEY_SIZE)
+        buffer.get(kyP)
         // Lire diP
-        position += 8 // Ignorer la longueur (on connaît déjà la taille)
-        if (position + DI_PUBLIC_KEY_SIZE > bytes.size) return null
-        val diP = bytes.copyOfRange(position, position + DI_PUBLIC_KEY_SIZE)
-        
+        val diPLength = buffer.getLong().toInt()
+        val diP = ByteArray(DI_PUBLIC_KEY_SIZE)
+        buffer.get(diP)
         return CK(email, id, kyP, diP)
     }
 
@@ -598,3 +545,38 @@ object Decoder {
         return sb.toString()
     }
 } 
+
+fun ByteArray.print() {
+    val sb = StringBuilder()
+    for (b in this) {
+        sb.append(String.format("%d", b and 0xFF.toByte()))
+    }
+    println(sb.toString())
+}
+
+fun ByteArray.toULong(littleEndian: Boolean = false): ULong {
+    require(this.size <= 8) { "ByteArray too large to convert to ULong" }
+    
+    val bytes = if (this.size < 8) {
+        // Pad with zeros if fewer than 8 bytes
+        ByteArray(8).also { padded ->
+            this.copyInto(
+                destination = padded,
+                destinationOffset = if (littleEndian) 0 else 8 - this.size
+            )
+        }
+    } else {
+        this
+    }
+    
+    return if (littleEndian) {
+        bytes.foldIndexed(0UL) { index, acc, byte ->
+            acc or (byte.toUByte().toULong() shl (index * 8))
+        }
+    } else {
+        // Big-endian
+        bytes.foldIndexed(0UL) { index, acc, byte ->
+            acc or (byte.toUByte().toULong() shl ((7 - index) * 8))
+        }
+    }
+}

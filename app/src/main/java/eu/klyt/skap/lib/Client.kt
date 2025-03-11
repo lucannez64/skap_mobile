@@ -61,7 +61,7 @@ fun decrypt(ep: EP, secretKey: ByteArray, kyQ: ByteArray): Result<Password> {
     val ciphertext2 = cipher.decrypt(ep.ciphertext,ep.nonce2,keySecret)
     val nonce = ep.nonce1
     val plaintext = cipher.decrypt(ciphertext2,nonce,keyKyQ)
-    val pass = Decoder.decodePassword(plaintext)
+    val pass = Decoded.decodePassword(plaintext)
     return if (pass == null) {
         Result.failure(Exception("Failed to Decode Password"))
     } else {
