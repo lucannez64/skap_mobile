@@ -1,15 +1,10 @@
 package eu.klyt.skap.lib
 import android.util.Log
 import java.security.SecureRandom
-import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody
-import okhttp3.Response
 import com.google.gson.Gson
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -276,6 +271,75 @@ suspend fun createAccount(email: String): Result<CreateAccountResult> {
         } catch (e: Exception) {
             Log.i(null,"Exception: ${e.message}")
             e.printStackTrace()
+            Result.failure(Exception("Erreur lors de la création du compte: ${e.message}", e))
+        }
+    }
+}
+
+suspend fun auth(uuid: Uuid, client: Client): Result<Boolean> {
+    return withContext(Dispatchers.IO) {
+        try {
+            val requestChallenge = Request.Builder()
+                .url(API_URL + "challenge_json/" + uuid.toString())
+                .build()
+            val responseChallenge = OkHttpClient().newCall(requestChallenge).execute()
+            val responseBody = responseChallenge.body?.string()
+            Log.i(null, "D $responseBody")
+            if (!responseChallenge.isSuccessful) {
+                return@withContext Result.failure(Exception("Erreur serveur: ${responseChallenge.code} - ${responseChallenge.message}"))
+            }
+
+            if (responseBody.isNullOrEmpty()) {
+                return@withContext Result.failure(Exception("Réponse vide du serveur"))
+            }
+            try {
+                val challengeJsonD = Gson().fromJson(responseBody, ByteArray::class.java)
+                for (v in challengeJsonD) {
+                    Log.i(null, v.toString())
+                }
+                val signature = MlDsa87().sign(client.diQ, challengeJsonD)
+                if (!signature.isSuccess) {
+                    return@withContext Result.failure(Exception("Erreur server: can't sign the challenge"))
+                }
+                val signaturee = signature.getOrNull()
+                val signatureu = signaturee?.toUint8Array()
+                val verified = signaturee?.let { MlDsa87().verify(client.diP, challengeJsonD,it) }
+                Log.i(null, verified.toString())
+                val jsonBody = Gson().toJson(signatureu)
+                Log.i(null,jsonBody)
+                val requestVerify = Request.Builder()
+                    .url(API_URL + "verify_json/" + uuid.toString())
+                    .post(jsonBody.toRequestBody("application/json".toMediaType()))
+                    .build()
+                val responseVerify = OkHttpClient().newCall(requestVerify).execute()
+                Log.i(null, "${requestVerify.url}")
+                Log.i(null, responseVerify.message)
+                Log.i(null, "${responseVerify.code}")
+                if (!responseVerify.isSuccessful) {
+                    return@withContext Result.failure(Exception("Erreur serveur: ${responseVerify.code} - ${responseVerify.message}"))
+                }
+                val r = responseVerify.body.toString()
+                Log.i(null, "SS $r")
+                val requestSync = Request.Builder()
+                    .url(API_URL + "sync_json/" + uuid.toString())
+                    .addHeader("Authorization", r)
+                    .build()
+                val responseSync = OkHttpClient().newCall(requestSync).execute()
+                if (!responseSync.isSuccessful) {
+                    return@withContext Result.failure(Exception("Erreur serveur: ${responseSync.code} - ${responseSync.message}"))
+                }
+                val responseSyncBody = responseSync.body?.string()
+                val ciphertext = Gson().fromJson(responseSyncBody, ByteArray::class.java)
+                val secret = MlKem1024().decapsulate(client.kyQ, ciphertext)
+                if (secret.isFailure) {
+                    return@withContext Result.failure(Exception("Erreur serveur: could'nt decapsulate the secret"))
+                }
+                client.secret = secret.getOrNull()
+                return@withContext Result.success(true)
+            } catch (e: Exception) {
+                return@withContext Result.failure(Exception("Erreur de parsing de la réponse: ${e.message}"))
+            }
+        } catch (e: Exception) {
             Result.failure(Exception("Erreur lors de la création du compte: ${e.message}", e))
         }
     }

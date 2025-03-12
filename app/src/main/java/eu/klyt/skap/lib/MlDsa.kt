@@ -7,6 +7,8 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAKeyGenerationParameters
 import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters
 import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters
 import org.bouncycastle.pqc.crypto.mldsa.MLDSASigner
+import java.security.PrivateKey
+import java.security.PublicKey
 import java.security.SecureRandom
 
 class MlDsa87 {
@@ -25,10 +27,10 @@ class MlDsa87 {
         return Pair(publicKey, privateKey)
     }
 
-    fun sign(publicKey: ByteArray, message: ByteArray): Result<ByteArray> {
-        val publicKeyParams = MLDSAPrivateKeyParameters(params, publicKey)
+    fun sign(privateKey: ByteArray, message: ByteArray): Result<ByteArray> {
+        val privateKeyParams = MLDSAPrivateKeyParameters(params, privateKey)
         val signer = MLDSASigner()
-        signer.init(true, publicKeyParams)
+        signer.init(true, privateKeyParams)
         signer.update(message, 0, message.size)
         val ciphertext = signer.generateSignature()
         return if (ciphertext == null) {
@@ -37,6 +39,14 @@ class MlDsa87 {
             Result.success(ciphertext)
         }
 
+    }
+
+    fun verify(publicKey: ByteArray, message: ByteArray,signature: ByteArray): Boolean {
+        val publicKeyParams = MLDSAPublicKeyParameters(params, publicKey)
+        val verifier = MLDSASigner()
+        verifier.init(false, publicKeyParams)
+        verifier.update(message, 0, message.size)
+        return verifier.verifySignature(signature)
     }
 }
 

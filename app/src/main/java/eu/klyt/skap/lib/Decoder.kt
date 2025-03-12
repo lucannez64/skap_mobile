@@ -104,7 +104,7 @@ data class Client(
     val kyQ: KySecretKey,
     val diP: DiPublicKey,
     val diQ: DiSecretKey,
-    val secret: ByteArray?
+    var secret: ByteArray?
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -552,6 +552,14 @@ fun ByteArray.print() {
         sb.append(String.format("%d", b and 0xFF.toByte()))
     }
     println(sb.toString())
+}
+
+fun ByteArray.tostring(): String {
+    val sb = StringBuilder()
+    for (b in this) {
+        sb.append(String.format("%d", b))
+    }
+    return sb.toString()
 }
 
 fun ByteArray.toULong(littleEndian: Boolean = false): ULong {

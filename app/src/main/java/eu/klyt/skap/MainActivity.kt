@@ -44,6 +44,7 @@ import java.io.File
 import java.util.*
 import androidx.lifecycle.lifecycleScope
 import eu.klyt.skap.lib.Decoded
+import eu.klyt.skap.lib.auth
 import kotlinx.coroutines.launch
 import java.io.IOException
 
@@ -371,6 +372,37 @@ fun LoginRegisterScreen() {
                                                         isValid = false
                                                     } else {
                                                         isLoading = true
+                                                        lifecycleOwner?.lifecycleScope?.launch {
+                                                            try {
+                                                                val id = decodedFile.id.id ?: throw Exception("Invalid key file")
+                                                                val authResult = auth(id, decodedFile.c)
+                                                                authResult.fold(
+                                                                    onSuccess = { success ->
+                                                                        if (!success) {
+                                                                            fileError = if (language == "fr")
+                                                                                "Échec de l'authentification"
+                                                                            else 
+                                                                                "Authentication failed"
+                                                                            isValid = false
+                                                                        }
+                                                                    },
+                                                                    onFailure = { e ->
+                                                                        fileError = if (language == "fr")
+                                                                            "Erreur d'authentification: ${e.message}"
+                                                                        else
+                                                                            "Authentication error: ${e.message}"
+                                                                        isValid = false
+                                                                    }
+                                                                )
+                                                                
+                                                            } catch (e: Exception) {
+                                                                fileError = if (language == "fr")
+                                                                    "Erreur inattendue: ${e.message}"
+                                                                else
+                                                                    "Unexpected error: ${e.message}"
+                                                                isValid = false
+                                                            }
+                                                        }
                                                         // Simulation d'une connexion réussie
                                                         submitStatus = "success"
                                                         isLoading = false
