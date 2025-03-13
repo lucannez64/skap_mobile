@@ -20,6 +20,7 @@ typealias KyPublicKey = ByteArray
 typealias KySecretKey = ByteArray
 typealias DiPublicKey = ByteArray
 typealias DiSecretKey = ByteArray
+typealias Passwords = Array<Pair<Password, Uuid>>
 
 // Classes de données
 data class Uuid(val bytes: ByteArray) {
@@ -132,7 +133,6 @@ data class ClientEx(
     val c: Client,
     var id: CK
 )
-
 data class Password(
     val password: String,
     val app_id: String?,

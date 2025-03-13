@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.ArrayList
+import kotlin.text.split
 
 const val API_URL = "https://skap.klyt.eu/"
 
@@ -276,18 +277,18 @@ suspend fun createAccount(email: String): Result<CreateAccountResult> {
     }
 }
 
-suspend fun auth(uuid: Uuid, client: Client): Result<Boolean> {
+suspend fun auth(uuid: Uuid, client: Client): Result<String> {
     return withContext(Dispatchers.IO) {
         try {
             val requestChallenge = Request.Builder()
                 .url(API_URL + "challenge_json/" + uuid.toString())
                 .build()
             val responseChallenge = OkHttpClient().newCall(requestChallenge).execute()
-            val responseBody = responseChallenge.body?.string()
-            Log.i(null, "D $responseBody")
             if (!responseChallenge.isSuccessful) {
                 return@withContext Result.failure(Exception("Erreur serveur: ${responseChallenge.code} - ${responseChallenge.message}"))
             }
+            val responseBody = responseChallenge.body?.string()
+            Log.i(null, "D $responseBody")
 
             if (responseBody.isNullOrEmpty()) {
                 return@withContext Result.failure(Exception("Réponse vide du serveur"))
@@ -297,7 +298,7 @@ suspend fun auth(uuid: Uuid, client: Client): Result<Boolean> {
                 for (v in challengeJsonD) {
                     Log.i(null, v.toString())
                 }
-                val signature = MlDsa87().sign(client.diQ, challengeJsonD)
+                val signature = MlDsa87().sign(client.diQ, client.diP,challengeJsonD)
                 if (!signature.isSuccess) {
                     return@withContext Result.failure(Exception("Erreur server: can't sign the challenge"))
                 }
@@ -318,7 +319,9 @@ suspend fun auth(uuid: Uuid, client: Client): Result<Boolean> {
                 if (!responseVerify.isSuccessful) {
                     return@withContext Result.failure(Exception("Erreur serveur: ${responseVerify.code} - ${responseVerify.message}"))
                 }
-                val r = responseVerify.body.toString()
+                val r = responseVerify.headers["set-cookie"].toString().replaceFirst("token=","").split(
+                    ";"[0]
+                )[0]
                 Log.i(null, "SS $r")
                 val requestSync = Request.Builder()
                     .url(API_URL + "sync_json/" + uuid.toString())
@@ -335,7 +338,7 @@ suspend fun auth(uuid: Uuid, client: Client): Result<Boolean> {
                     return@withContext Result.failure(Exception("Erreur serveur: could'nt decapsulate the secret"))
                 }
                 client.secret = secret.getOrNull()
-                return@withContext Result.success(true)
+                return@withContext Result.success(r)
             } catch (e: Exception) {
                 return@withContext Result.failure(Exception("Erreur de parsing de la réponse: ${e.message}"))
             }
@@ -343,4 +346,38 @@ suspend fun auth(uuid: Uuid, client: Client): Result<Boolean> {
             Result.failure(Exception("Erreur lors de la création du compte: ${e.message}", e))
         }
     }
+}
+
+suspend fun getAll(token: String, uuid: Uuid, client: Client): Result<Passwords> {
+    return withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(API_URL + "send_all_json/" + uuid.toString())
+            .addHeader("Authorization", token)
+            .build()
+
+        val response = OkHttpClient().newCall(request).execute()
+        if (!response.isSuccessful) {
+            return@withContext Result.failure(Exception("Erreur serveur: ${response.code} - ${response.message}"))
+        }
+        val responseBody = response.body?.string()
+        if (responseBody.isNullOrEmpty()) {
+            return@withContext Result.failure(Exception("Réponse vide du serveur"))
+        }
+        val responseJson = Gson().fromJson(responseBody, Map::class.java)
+        val passwords = responseJson["passwords"] as ArrayList<Pair<EP, String>>
+        val p = ArrayList<Pair<Password, Uuid>>()
+        for d in passwords.iterator() {
+            val (ep, id) = d
+            val r = decrypt(ep, client.secret, client.kyQ)
+            if (r.isFailure) {
+                Log.d(null, "Decrypt failed")
+                continue
+            }
+            val z = r.getOrNull()
+            val uuid2 = createUuid(id)
+            p.add(Pair(z, uuid2))
+        }
+        val password: Passwords = p.toTypedArray()
+        Result.success(p)
+    }    
 }

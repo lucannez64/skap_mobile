@@ -27,8 +27,9 @@ class MlDsa87 {
         return Pair(publicKey, privateKey)
     }
 
-    fun sign(privateKey: ByteArray, message: ByteArray): Result<ByteArray> {
-        val privateKeyParams = MLDSAPrivateKeyParameters(params, privateKey)
+    fun sign(privateKey: ByteArray, publicKey: ByteArray,message: ByteArray): Result<ByteArray> {
+        val publicKeyParams = MLDSAPublicKeyParameters(params, publicKey)
+        val privateKeyParams = MLDSAPrivateKeyParameters(params, privateKey, publicKeyParams)
         val signer = MLDSASigner()
         signer.init(true, privateKeyParams)
         signer.update(message, 0, message.size)
