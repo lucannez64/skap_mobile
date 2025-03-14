@@ -475,7 +475,7 @@ fun PasswordItem(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (password.username.length > 15) password.username.slice(0..14) + ".." else password.username,
+                            text = if (password.username.length > 20) password.username.slice(0..20) + ".." else password.username,
                             fontSize = 12.sp,
                             color = primaryTextColor,
                             maxLines = 1,
@@ -519,7 +519,7 @@ fun PasswordItem(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = if (showPassword) {
-                                if (password.password.length > 10) password.password.slice(0..9) + "..." else password.password
+                                if (password.password.length > 18) password.password.slice(0..17) + "..." else password.password
                             } else "••••••••",
                             fontSize = 12.sp,
                             color = primaryTextColor

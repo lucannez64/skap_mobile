@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.ArrayList
+import java.util.stream.Collectors
 import kotlin.text.split
 
 const val API_URL = "https://skap.klyt.eu/"
@@ -65,6 +66,8 @@ fun decrypt(ep: EP, secretKey: ByteArray, kyQ: ByteArray): Result<Password> {
         Result.success(pass)
     }
 }
+
+
 
 enum class ShareStatus {
     Pending,
@@ -366,32 +369,31 @@ suspend fun getAll(token: String, uuid: Uuid, client: Client): Result<Passwords>
         }
         val responseJson = Gson().fromJson(responseBody, Map::class.java)
         val passwords = responseJson["passwords"] as ArrayList<ArrayList<*>>
-        val p = ArrayList<Pair<Password, Uuid>>()
-        for (d in passwords) {
-            val ee = d[0] as LinkedTreeMap<String, ArrayList<Int>>
-            val ep = ee["nonce2"]?.toByteArray()
-                ?.let { ee["ciphertext"]?.toByteArray()
-                    ?.let { it1 -> ee["nonce"]?.toByteArray()?.let { it2 -> EP(it2, it, it1) } } }
-            val id = d[1] as String
-            val r = client.secret?.let {
-                if (ep != null) {
-                    decrypt(ep, it, client.kyQ)
-                } else {
-                    null
+        val p = passwords.parallelStream().map {
+            d ->
+                val ee = d[0] as LinkedTreeMap<String, ArrayList<Int>>
+                val ep = ee["nonce2"]?.toByteArray()
+                    ?.let { ee["ciphertext"]?.toByteArray()
+                        ?.let { it1 -> ee["nonce"]?.toByteArray()?.let { it2 -> EP(it2, it, it1) } } }
+                val id = d[1] as String
+                val r = client.secret?.let {
+                    if (ep != null) {
+                        decrypt(ep, it, client.kyQ)
+                    } else {
+                        null
+                    }
                 }
-            }
-            if (r != null) {
-                if (r.isFailure) {
-                    Log.i(null, "Decrypt failed")
-                    continue
+                if (r != null) {
+                    if (r.isFailure) {
+                        Log.i(null, "Decrypt failed")
+                        null
+                    }
                 }
-            }
-            val z = r?.getOrNull()
-            val uuid2 = createUuid(id)
-            p.add(Pair(z, uuid2) as Pair<Password, Uuid>)
-        }
-        val password: Passwords = p.toTypedArray()
-        Result.success(password)
+                val z = r?.getOrNull()
+                val uuid2 = createUuid(id)
+                Pair(z, uuid2) as Pair<Password, Uuid>
+        }.filter { it -> it != null }.collect(Collectors.toList()).toTypedArray()
+        Result.success(p)
     }    
 }
 

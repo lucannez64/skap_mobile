@@ -50,6 +50,7 @@ import eu.klyt.skap.lib.getAll
 import kotlinx.coroutines.launch
 import java.io.IOException
 import android.content.SharedPreferences
+import android.provider.OpenableColumns
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.toArgb
@@ -204,6 +205,7 @@ fun LoginRegisterScreen(onLoginSuccess: (ClientEx, String) -> Unit) {
     
     // État pour le formulaire de connexion
     var selectedFile by remember { mutableStateOf<Uri?>(null) }
+    var fileName by remember { mutableStateOf<String?>(null) }
     var fileError by remember { mutableStateOf<String?>(null) }
     
     // État pour le formulaire d'inscription
@@ -224,6 +226,13 @@ fun LoginRegisterScreen(onLoginSuccess: (ClientEx, String) -> Unit) {
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         selectedFile = uri
+        if (uri != null) {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                cursor.moveToFirst()
+                fileName = cursor.getString(nameIndex)
+            }
+        }
         Log.i(null,"$selectedFile")
         fileError = null
     }
@@ -337,7 +346,7 @@ fun LoginRegisterScreen(onLoginSuccess: (ClientEx, String) -> Unit) {
                                         .height(48.dp)
                                 ) {
                                     Text(
-                                        text = selectedFile?.lastPathSegment ?: translations.keyFile,
+                                        text = fileName ?: translations.keyFile,
                                         color = accentColor1,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
