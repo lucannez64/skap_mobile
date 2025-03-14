@@ -4,6 +4,7 @@ import java.security.SecureRandom
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import com.google.gson.Gson
+import com.google.gson.internal.LinkedTreeMap
 import okhttp3.MediaType.Companion.toMediaType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -364,20 +365,38 @@ suspend fun getAll(token: String, uuid: Uuid, client: Client): Result<Passwords>
             return@withContext Result.failure(Exception("Réponse vide du serveur"))
         }
         val responseJson = Gson().fromJson(responseBody, Map::class.java)
-        val passwords = responseJson["passwords"] as ArrayList<Pair<EP, String>>
+        val passwords = responseJson["passwords"] as ArrayList<ArrayList<*>>
         val p = ArrayList<Pair<Password, Uuid>>()
-        for d in passwords.iterator() {
-            val (ep, id) = d
-            val r = decrypt(ep, client.secret, client.kyQ)
-            if (r.isFailure) {
-                Log.d(null, "Decrypt failed")
-                continue
+        for (d in passwords) {
+            val ee = d[0] as LinkedTreeMap<String, ArrayList<Int>>
+            val ep = ee["nonce2"]?.toByteArray()
+                ?.let { ee["ciphertext"]?.toByteArray()
+                    ?.let { it1 -> ee["nonce"]?.toByteArray()?.let { it2 -> EP(it2, it, it1) } } }
+            val id = d[1] as String
+            val r = client.secret?.let {
+                if (ep != null) {
+                    decrypt(ep, it, client.kyQ)
+                } else {
+                    null
+                }
             }
-            val z = r.getOrNull()
+            if (r != null) {
+                if (r.isFailure) {
+                    Log.i(null, "Decrypt failed")
+                    continue
+                }
+            }
+            val z = r?.getOrNull()
             val uuid2 = createUuid(id)
-            p.add(Pair(z, uuid2))
+            p.add(Pair(z, uuid2) as Pair<Password, Uuid>)
         }
         val password: Passwords = p.toTypedArray()
-        Result.success(p)
+        Result.success(password)
     }    
+}
+
+fun ArrayList<Int>.toByteArray():ByteArray {
+    return ByteArray(this.size) { i ->
+        this[i].toByte()
+    }
 }

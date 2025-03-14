@@ -25,6 +25,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".VaultActivity"
+            android:exported="false"
+            android:label="@string/vault_name"
+            android:theme="@style/Theme.Skap" />
     </application>
 
 </manifest>

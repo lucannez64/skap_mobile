@@ -46,8 +46,18 @@ import androidx.lifecycle.lifecycleScope
 import eu.klyt.skap.lib.Decoded
 import eu.klyt.skap.lib.tostring
 import eu.klyt.skap.lib.auth
+import eu.klyt.skap.lib.getAll
 import kotlinx.coroutines.launch
 import java.io.IOException
+import android.content.SharedPreferences
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.toArgb
+import androidx.core.content.edit
+import com.google.gson.Gson
+import eu.klyt.skap.lib.BincodeEncoder
+import eu.klyt.skap.lib.ClientEx
+import kotlinx.coroutines.CoroutineScope
 
 var encodedFile: ByteArray? = null
 const val REQUEST_SAVE_FILE = 42
@@ -62,10 +72,25 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Color(0xFF1D1B21)
                 ) {
-                    LoginRegisterScreen()
+                    LoginRegisterScreen(
+                        onLoginSuccess = { clientEx, token ->
+                            // Lancer VaultActivity avec le ClientEx et le token
+                            val intent = Intent(this, VaultActivity::class.java).apply {
+                                putExtra("client_ex_bytes", encoderClientEx(clientEx))
+                                putExtra("token", token)
+                            }
+                            startActivity(intent)
+                        }
+                    )
                 }
             }
         }
+    }
+
+    // Fonction pour encoder le ClientEx en ByteArray
+    private fun encoderClientEx(clientEx: ClientEx): ByteArray {
+        val encoder = BincodeEncoder()
+        return encoder.encodeClientEx(clientEx)
     }
 
     override fun onActivityResult(
@@ -167,7 +192,7 @@ fun getTranslations(language: String): Translations {
 }
 
 @Composable
-fun LoginRegisterScreen() {
+fun LoginRegisterScreen(onLoginSuccess: (ClientEx, String) -> Unit) {
     // État pour la langue
     var language by remember { mutableStateOf(
         if (Locale.getDefault().language.startsWith("fr")) "fr" else "en"
@@ -192,6 +217,7 @@ fun LoginRegisterScreen() {
     var registerMessage by remember { mutableStateOf("") }
     
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     
     // Sélecteur de fichier
     val filePicker = rememberLauncherForActivityResult(
@@ -381,8 +407,10 @@ fun LoginRegisterScreen() {
                                                                     onSuccess = { token ->
                                                                         Log.i(null, "${decodedFile.c.secret?.tostring()}")
                                                                         submitStatus = "success"
-
                                                                         isLoading = false
+                                                                        
+                                                                        // Naviguer vers l'écran vault
+                                                                        onLoginSuccess(decodedFile, token)
                                                                     },
                                                                     onFailure = { e ->
                                                                         fileError = if (language == "fr")
@@ -413,9 +441,6 @@ fun LoginRegisterScreen() {
                                                 Log.e("FileRead", "Error reading file", e)
                                             }
                                         }
-
-                                        // Dans une vraie application, vous appelleriez votre API d'authentification ici
-                                        // et géreriez la réponse
                                     }
                                 },
                                 enabled = !isLoading,
@@ -668,6 +693,6 @@ fun LoginRegisterScreen() {
 @Composable
 fun LoginRegisterScreenPreview() {
     SkapTheme {
-        LoginRegisterScreen()
+        LoginRegisterScreen(onLoginSuccess = { _, _ -> })
     }
 }

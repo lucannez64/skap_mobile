@@ -51,9 +51,14 @@ dependencies {
     implementation(libs.androidx.material3)
     
     // BouncyCastle pour le cryptage
-    implementation("org.bouncycastle:bcprov-jdk18on:1.79")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.google.code.gson:gson:2.12.1")
+    implementation(libs.bcprov.jdk18on)
+    implementation(libs.okhttp)
+    implementation(libs.gson)
+    implementation(libs.tink.android)
+    implementation(libs.androidx.material.icons.extended)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+    implementation(libs.otp)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
