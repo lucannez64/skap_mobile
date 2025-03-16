@@ -60,7 +60,6 @@ class XChaCha20Poly1305Cipher {
         val keyp = SecretBytes.copyFrom(key, access)
         val tinkKey = XChaCha20Poly1305Key.create(keyp)
         val newcipher = nonce+ciphertext
-
         val aead = XChaCha20Poly1305.create(tinkKey)
         return aead.decrypt(newcipher, ByteArray(0))
     }

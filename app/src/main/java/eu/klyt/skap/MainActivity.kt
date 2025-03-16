@@ -21,6 +21,9 @@ import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +65,10 @@ import kotlinx.coroutines.CoroutineScope
 
 var encodedFile: ByteArray? = null
 const val REQUEST_SAVE_FILE = 42
+
+// Constante pour les SharedPreferences
+const val PREFS_NAME = "SkapPrefs"
+const val PREF_LANGUAGE = "language"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -126,6 +133,21 @@ val accentColor1 = Color(0xFFF2C3C2)
 val accentColor2 = Color(0xFFA7F3AE)
 val errorColor = Color(0xFFB00E0B)
 
+// Fonction pour sauvegarder la langue dans les SharedPreferences
+fun saveLanguagePreference(context: Context, language: String) {
+    val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    sharedPreferences.edit {
+        putString(PREF_LANGUAGE, language)
+    }
+}
+
+// Fonction pour récupérer la langue depuis les SharedPreferences
+fun getLanguagePreference(context: Context): String {
+    val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    return sharedPreferences.getString(PREF_LANGUAGE, 
+        if (Locale.getDefault().language.startsWith("fr")) "fr" else "en"
+    ) ?: if (Locale.getDefault().language.startsWith("fr")) "fr" else "en"
+}
 
 // Définition des traductions
 data class Translations(
@@ -195,9 +217,8 @@ fun getTranslations(language: String): Translations {
 @Composable
 fun LoginRegisterScreen(onLoginSuccess: (ClientEx, String) -> Unit) {
     // État pour la langue
-    var language by remember { mutableStateOf(
-        if (Locale.getDefault().language.startsWith("fr")) "fr" else "en"
-    ) }
+    val context = LocalContext.current
+    var language by remember { mutableStateOf(getLanguagePreference(context)) }
     val translations = getTranslations(language)
     
     // État pour le formulaire
@@ -218,7 +239,6 @@ fun LoginRegisterScreen(onLoginSuccess: (ClientEx, String) -> Unit) {
     var registerStatus by remember { mutableStateOf<String?>(null) }
     var registerMessage by remember { mutableStateOf("") }
     
-    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     
     // Sélecteur de fichier
@@ -247,25 +267,140 @@ fun LoginRegisterScreen(onLoginSuccess: (ClientEx, String) -> Unit) {
             .background(backgroundColor)
             .padding(16.dp)
     ) {
-        // Sélecteur de langue
+        // Sélecteur de langue - Remplacé par un bouton de profil
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 80.dp, end = 16.dp)
         ) {
-            Button(
-                onClick = { language = if (language == "fr") "en" else "fr" },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = secondaryTextColor,
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.height(36.dp)
+            var showProfileMenu by remember { mutableStateOf(false) }
+            
+            IconButton(
+                onClick = { showProfileMenu = true },
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(secondaryTextColor, RoundedCornerShape(50))
+                    .padding(4.dp)
             ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = if (language == "fr") "Profil" else "Profile",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            
+            DropdownMenu(
+                expanded = showProfileMenu,
+                onDismissRequest = { showProfileMenu = false },
+                modifier = Modifier
+                    .background(backgroundColor, RoundedCornerShape(10.dp))
+                    .width(220.dp)
+                    .border(1.dp, Color.White, RoundedCornerShape(4.dp))
+            ) {
+                // Option de langue
                 Text(
-                    text = if (language == "fr") "Français" else "English",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
+                    text = if (language == "fr") "Langue" else "Language",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                )
+                
+                DropdownMenuItem(
+                    text = { 
+                        Text(
+                            text = "Français", 
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = if (language == "fr") FontWeight.Bold else FontWeight.Normal
+                        ) 
+                    },
+                    onClick = {
+                        language = "fr"
+                        saveLanguagePreference(context, language)
+                        showProfileMenu = false
+                    },
+                    leadingIcon = {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .background(
+                                    if (language == "fr") accentColor2 else Color.Transparent,
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (language == "fr") {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.Black
+                                )
+                            }
+                        }
+                    },
+                    colors = MenuDefaults.itemColors(
+                        textColor = Color.White,
+                        leadingIconColor = Color.White,
+                        trailingIconColor = Color.White,
+                        disabledTextColor = Color.Gray,
+                        disabledLeadingIconColor = Color.Gray,
+                        disabledTrailingIconColor = Color.Gray
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                )
+                
+                DropdownMenuItem(
+                    text = { 
+                        Text(
+                            text = "English", 
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = if (language == "en") FontWeight.Bold else FontWeight.Normal
+                        ) 
+                    },
+                    onClick = {
+                        language = "en"
+                        saveLanguagePreference(context, language)
+                        showProfileMenu = false
+                    },
+                    leadingIcon = {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .background(
+                                    if (language == "en") accentColor2 else Color.Transparent,
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (language == "en") {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.Black
+                                )
+                            }
+                        }
+                    },
+                    colors = MenuDefaults.itemColors(
+                        textColor = Color.White,
+                        leadingIconColor = Color.White,
+                        trailingIconColor = Color.White,
+                        disabledTextColor = Color.Gray,
+                        disabledLeadingIconColor = Color.Gray,
+                        disabledTrailingIconColor = Color.Gray
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
                 )
             }
         }

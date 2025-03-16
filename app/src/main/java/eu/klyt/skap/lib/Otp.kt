@@ -1,6 +1,12 @@
 package eu.klyt.skap.lib
 
+import android.os.Build
+import android.util.Log
+import androidx.annotation.RequiresApi
+import java.net.URI
 import java.net.URL
+import java.net.URLDecoder
+import java.nio.charset.Charset
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.experimental.and
@@ -30,8 +36,9 @@ object OtpUtils {
      */
     fun fromUri(uri: String): Otp? {
         try {
-            val url = URL(uri)
-            if (url.protocol != "otpauth") return null
+            val url = URI(uri)
+            Log.i(null,url.toString())
+            if (url.scheme != "otpauth") return null
             if (url.host != "totp") return null
             
             val queryParams = url.query.split("&").associate { 
