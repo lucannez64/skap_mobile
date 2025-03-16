@@ -1,5 +1,6 @@
 package eu.klyt.skap.lib
 
+import android.util.Log
 import java.nio.ByteBuffer
 import kotlin.uuid.Uuid as TTID
 import java.nio.ByteOrder
@@ -21,6 +22,21 @@ typealias KySecretKey = ByteArray
 typealias DiPublicKey = ByteArray
 typealias DiSecretKey = ByteArray
 typealias Passwords = Array<Pair<Password, Uuid>>
+typealias SharedPasswords = Array<Quadruple<Password, Uuid, Uuid, ShareStatus>>
+
+data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+        other as Quadruple<*, *, *, *>
+        return first == other.first && second == other.second && third == other.third && fourth == other.fourth
+    }
+
+    override fun hashCode(): Int {
+        return javaClass.hashCode()
+    }
+
+}
 
 // Classes de données
 data class Uuid(val bytes: ByteArray) {
@@ -50,6 +66,32 @@ fun createUuid(input: String): Uuid {
         bytes[i] = hex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
     }
     return Uuid(bytes)
+}
+
+fun toUuid(uuid: String): Uuid {
+   return Uuid(uuidToBytes(uuid))
+}
+
+fun uuidToBytes(uuid: String): ByteArray {
+    // Also check that all other characters are valid hex digits
+    val hexChars = uuid.replace("-", "")
+    if (!hexChars.all { it.isDigit() || it.toLowerCase() in 'a'..'f' }) {
+        throw IllegalArgumentException("Invalid UUID format: contains non-hex characters")
+    }
+
+    // Remove hyphens from the UUID string
+    val uuidWithoutHyphens = uuid.replace("-", "")
+
+    // Prepare the byte array (16 bytes for UUID)
+    val bytes = ByteArray(16)
+
+    // Convert each pair of hex characters to a byte
+    for (i in 0 until 16) {
+        val hexByte = uuidWithoutHyphens.substring(i * 2, i * 2 + 2)
+        bytes[i] = hexByte.toInt(16).toByte()
+    }
+
+    return bytes
 }
 
 data class CK(

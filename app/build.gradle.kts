@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.otp)
+    implementation(libs.nbvcxz)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

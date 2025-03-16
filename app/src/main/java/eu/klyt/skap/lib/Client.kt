@@ -13,6 +13,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.ArrayList
 import java.util.stream.Collectors
 import kotlin.text.split
+import kotlin.getOrThrow
 
 const val API_URL = "https://skap.klyt.eu/"
 
@@ -192,6 +193,11 @@ data class CreateAccountResult(
         return result
     }
 }
+
+data class AllPasswords(
+    val passwords: Passwords,
+    val sharedPasswords: SharedPasswords
+)
 
 fun decryptShared(sharedPass: SharedPass, client: Client): Result<Password> {
     Log.i(null, sharedPass.kem_ct.size.toString())
@@ -387,7 +393,7 @@ suspend fun auth(uuid: Uuid, client: Client): Result<String> {
     }
 }
 
-suspend fun getAll(token: String, uuid: Uuid, client: Client): Result<Passwords> {
+suspend fun getAll(token: String, uuid: Uuid, client: Client): Result<AllPasswords> {
     return withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(API_URL + "send_all_json/" + uuid.toString())
@@ -452,18 +458,10 @@ suspend fun getAll(token: String, uuid: Uuid, client: Client): Result<Passwords>
             if (pass.isFailure) {
                 null
             } else {
-                Array(4) {
-                    when (it) {
-                        0 -> pass.getOrNull()
-                        1 -> uuid2
-                        2 -> uuid3
-                        3 -> sharedPass.status
-                        else -> null
-                    }
-                }
+                Quadruple(pass.getOrNull()!!, uuid2, uuid3, sharedPass.status)
             }
-        }.filter { it -> it != null }.collect(Collectors.toList()).toTypedArray()
-        Result.success(p)
+        }.filter { it != null }.collect(Collectors.toList()).toTypedArray() as SharedPasswords
+        Result.success(AllPasswords(p, s))
     }    
 }
 
