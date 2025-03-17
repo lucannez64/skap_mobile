@@ -182,7 +182,9 @@ data class Password(
     val description: String?,
     val url: String?,
     val otp: String?
-)
+) {
+    companion object
+}
 
 data class EP(
     val nonce1: ByteArray,

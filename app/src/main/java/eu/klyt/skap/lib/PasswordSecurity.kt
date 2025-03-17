@@ -6,12 +6,17 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import me.gosimple.nbvcxz.Nbvcxz
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.bouncycastle.jcajce.provider.digest.SHA1
 import org.bouncycastle.util.encoders.Hex
 import java.io.IOException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 data class PasswordAuditResult(
     val strength: Double, // Valeur entre 0 et 1
@@ -33,7 +38,21 @@ data class GlobalSecurityAuditResult(
 )
 
 class PasswordSecurityAuditor {
-    private val client = OkHttpClient()
+    private val client: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .writeTimeout(5, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+    
+    private val passwordStrengthEstimator = Nbvcxz()
+    private val compromisedCache = ConcurrentHashMap<String, Int>()
+    private val auditCache = ConcurrentHashMap<String, PasswordAuditResult>()
+    private val hashCache = ConcurrentHashMap<String, String>()
+    private val maxConcurrentRequests = 5
+    private val requestCounter = AtomicInteger(0)
     
     /**
      * Effectue une vérification complète de sécurité du mot de passe
@@ -42,28 +61,54 @@ class PasswordSecurityAuditor {
      * @return Le résultat de l'audit du mot de passe
      */
     suspend fun auditPassword(password: String, language: String): PasswordAuditResult {
+        // Vérifier le cache
+        val cacheKey = "$password:$language"
+        auditCache[cacheKey]?.let { return it }
+        
         // Calculer la force du mot de passe
-        val passwordStrengthEstimator = Nbvcxz()
         val result = passwordStrengthEstimator.estimate(password)
-        val strength = result.entropy / 128.0 // Normaliser sur une échelle de 0 à 1 (128 bits est considéré très fort)
+        val strength = result.entropy / 128.0
         
         // Vérifier si le mot de passe a été compromis
         val isCompromisedResult = checkCompromised(password)
         val isCompromised = isCompromisedResult > 0
         val compromisedCount = if (isCompromisedResult >= 0) isCompromisedResult else 0
         
-        // Calculer le score final
-        // Si le mot de passe a été compromis, on pénalise le score
-        val score = if (isCompromised) {
-            // Si compromis, le score maximum est de 0.5, et diminue en fonction du nombre de fuites
+        val score = calculateScore(strength, isCompromised, compromisedCount)
+        
+        val (strengthMessage, securityMessage) = generateMessages(
+            strength, isCompromised, compromisedCount, language
+        )
+        
+        val auditResult = PasswordAuditResult(
+            strength = strength,
+            isCompromised = isCompromised,
+            compromisedCount = compromisedCount,
+            score = score,
+            strengthMessage = strengthMessage,
+            securityMessage = securityMessage
+        )
+        
+        // Mettre en cache le résultat
+        auditCache[cacheKey] = auditResult
+        return auditResult
+    }
+    
+    private fun calculateScore(strength: Double, isCompromised: Boolean, compromisedCount: Int): Double {
+        return if (isCompromised) {
             val compromisedPenalty = minOf(0.5, (compromisedCount.toDouble() / 10.0))
             maxOf(0.0, 0.5 - compromisedPenalty)
         } else {
-            // Si non compromis, le score est basé uniquement sur la force
             strength
         }
-        
-        // Messages selon la langue
+    }
+    
+    private fun generateMessages(
+        strength: Double,
+        isCompromised: Boolean,
+        compromisedCount: Int,
+        language: String
+    ): Pair<String, String> {
         val strengthMessage = when {
             strength < 0.3 -> if (language == "fr") "Faible" else "Weak"
             strength < 0.6 -> if (language == "fr") "Moyen" else "Medium"
@@ -82,14 +127,7 @@ class PasswordSecurityAuditor {
                 "This password hasn't been found in known data breaches."
         }
         
-        return PasswordAuditResult(
-            strength = strength,
-            isCompromised = isCompromised,
-            compromisedCount = compromisedCount,
-            score = score,
-            strengthMessage = strengthMessage,
-            securityMessage = securityMessage
-        )
+        return Pair(strengthMessage, securityMessage)
     }
     
     /**
@@ -102,13 +140,12 @@ class PasswordSecurityAuditor {
         passwords: Map<String, String>,
         language: String
     ): GlobalSecurityAuditResult = coroutineScope {
-        // Auditer chaque mot de passe individuellement en parallèle
         val auditResults = mutableMapOf<String, PasswordAuditResult>()
         val uniquePasswords = mutableSetOf<String>()
         val duplicatedPasswords = mutableSetOf<String>()
         
-        // Première passe - identifier les duplications (exécution séquentielle nécessaire)
-        passwords.forEach { (_, password) ->
+        // Identifier les duplications
+        passwords.values.forEach { password ->
             if (password in uniquePasswords) {
                 duplicatedPasswords.add(password)
             } else {
@@ -116,7 +153,14 @@ class PasswordSecurityAuditor {
             }
         }
         
-        // Deuxième passe - lancer les audits en parallèle
+        // Pré-calculer les hashes pour tous les mots de passe uniques
+        uniquePasswords.forEach { password ->
+            hashCache.getOrPut(password) {
+                calculatePasswordHash(password)
+            }
+        }
+        
+        // Lancer les audits en parallèle avec limitation
         val auditJobs = passwords.map { (id, password) ->
             async(Dispatchers.Default) {
                 val result = auditPassword(password, language)
@@ -124,36 +168,24 @@ class PasswordSecurityAuditor {
             }
         }
         
-        // Attendre que tous les audits soient terminés et collecter les résultats
         val auditPairs = auditJobs.awaitAll()
         auditPairs.forEach { (id, result) ->
             auditResults[id] = result
         }
         
-        // Calculer les statistiques globales
-        var totalScore = 0.0
-        var compromisedCount = 0
-        var weakCount = 0
-        var mediumCount = 0
-        var strongCount = 0
-        
-        auditResults.values.forEach { result ->
-            totalScore += result.score
-            
-            if (result.isCompromised) {
-                compromisedCount++
-            }
-            
-            when {
-                result.strength < 0.3 -> weakCount++
-                result.strength < 0.6 -> mediumCount++
-                else -> strongCount++
-            }
+        // Calculer les statistiques globales de manière optimisée
+        val stats = auditResults.values.fold(Stats()) { acc, result ->
+            acc.copy(
+                totalScore = acc.totalScore + result.score,
+                compromisedCount = acc.compromisedCount + if (result.isCompromised) 1 else 0,
+                weakCount = acc.weakCount + if (result.strength < 0.3) 1 else 0,
+                mediumCount = acc.mediumCount + if (result.strength in 0.3..0.6) 1 else 0,
+                strongCount = acc.strongCount + if (result.strength >= 0.6) 1 else 0
+            )
         }
         
-        // Calculer le score moyen
         val overallScore = if (auditResults.isNotEmpty()) {
-            totalScore / auditResults.size
+            stats.totalScore / auditResults.size
         } else {
             0.0
         }
@@ -161,32 +193,31 @@ class PasswordSecurityAuditor {
         GlobalSecurityAuditResult(
             passwordResults = auditResults,
             overallScore = overallScore,
-            compromisedCount = compromisedCount,
-            weakCount = weakCount,
-            mediumCount = mediumCount,
-            strongCount = strongCount,
+            compromisedCount = stats.compromisedCount,
+            weakCount = stats.weakCount,
+            mediumCount = stats.mediumCount,
+            strongCount = stats.strongCount,
             duplicateCount = duplicatedPasswords.size
         )
     }
     
-    /**
-     * Vérifie si un mot de passe a été compromis en utilisant l'API haveibeenpwned
-     * @param password Le mot de passe à vérifier
-     * @return Le nombre de fois que le mot de passe a été compromis, 0 si non compromis, -1 en cas d'erreur
-     */
     private suspend fun checkCompromised(password: String): Int = withContext(Dispatchers.IO) {
+        // Vérifier le cache
+        compromisedCache[password]?.let { return@withContext it }
+        
+        // Attendre si trop de requêtes en cours
+        while (requestCounter.get() >= maxConcurrentRequests) {
+            Thread.sleep(100)
+        }
+        
         try {
-            // Calculer le hash SHA-1 du mot de passe
-            val digest = SHA1.Digest()
-            val passwordBytes = password.toByteArray(Charsets.UTF_8)
-            digest.update(passwordBytes, 0, passwordBytes.size)
-            val passwordHash = Hex.toHexString(digest.digest()).uppercase()
+            requestCounter.incrementAndGet()
             
-            // Diviser le hash en préfixe et suffixe
-            val prefix = passwordHash.substring(0, 5)
-            val suffix = passwordHash.substring(5)
+            val passwordHash = hashCache.getOrPut(password) {
+                calculatePasswordHash(password)
+            }
+            val (prefix, suffix) = splitHash(passwordHash)
             
-            // Faire la requête à l'API haveibeenpwned
             val request = Request.Builder()
                 .url("https://api.pwnedpasswords.com/range/$prefix")
                 .header("User-Agent", "SKAP-Mobile-App")
@@ -198,21 +229,42 @@ class PasswordSecurityAuditor {
                     return@withContext -1
                 }
                 
-                val hashesText = response.body?.string() ?: ""
-                val hashes = hashesText.split("\r\n", "\n")
+                val count = response.body?.string()
+                    ?.split("\r\n", "\n")
+                    ?.firstOrNull { it.startsWith(suffix, ignoreCase = true) }
+                    ?.split(":")
+                    ?.getOrNull(1)
+                    ?.toIntOrNull()
+                    ?: 0
                 
-                for (hash in hashes) {
-                    val parts = hash.split(":")
-                    if (parts.size == 2 && parts[0].equals(suffix, ignoreCase = true)) {
-                        return@withContext parts[1].toInt()
-                    }
-                }
-                
-                return@withContext 0 // Mot de passe non trouvé dans la liste des compromis
+                // Mettre en cache le résultat
+                compromisedCache[password] = count
+                return@withContext count
             }
         } catch (e: IOException) {
             Log.e("PasswordSecurity", "Error checking password: ${e.message}")
-            return@withContext -1 // Erreur lors de la vérification
+            return@withContext -1
+        } finally {
+            requestCounter.decrementAndGet()
         }
     }
+    
+    private fun calculatePasswordHash(password: String): String {
+        val digest = SHA1.Digest()
+        val passwordBytes = password.toByteArray(Charsets.UTF_8)
+        digest.update(passwordBytes, 0, passwordBytes.size)
+        return Hex.toHexString(digest.digest()).uppercase()
+    }
+    
+    private fun splitHash(hash: String): Pair<String, String> {
+        return Pair(hash.substring(0, 5), hash.substring(5))
+    }
+    
+    private data class Stats(
+        val totalScore: Double = 0.0,
+        val compromisedCount: Int = 0,
+        val weakCount: Int = 0,
+        val mediumCount: Int = 0,
+        val strongCount: Int = 0
+    )
 } 
