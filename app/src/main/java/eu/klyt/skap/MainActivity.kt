@@ -131,7 +131,7 @@ val primaryTextColor = Color(0xFF1D1B21)
 val secondaryTextColor = Color(0xFF474B4F)
 val accentColor1 = Color(0xFFF2C3C2)
 val accentColor2 = Color(0xFFA7F3AE)
-val errorColor = Color(0xFFB00E0B)
+val errorColor = Color(0xFFE53E3E)
 
 // Fonction pour sauvegarder la langue dans les SharedPreferences
 fun saveLanguagePreference(context: Context, language: String) {
