@@ -68,6 +68,17 @@
 # debugging stack traces.
 #-keepattributes SourceFile,LineNumberTable
 
+# Coil3 image loading library rules
+-keep class coil3.PlatformContext { *; }
+-keep class coil3.network.ConnectivityChecker { *; }
+-keep class coil3.network.okhttp.OkHttpNetworkFetcher** { *; }
+-keep class coil3.** { *; }
+-dontwarn coil3.**
+
+# Keep Coil3 platform-specific implementations
+-keep class * implements coil3.PlatformContext
+-keep class * extends coil3.network.NetworkFetcher
+
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
