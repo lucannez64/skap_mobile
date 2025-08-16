@@ -32,18 +32,11 @@ fun randomBytes(bytesLength: Int): ByteArray {
 fun encrypt(pass: Password, client: Client): Result<EP> {
     val encoder = BincodeEncoder();
     val passb = encoder.encodePassword(pass)
-    Log.i(null, passb.size.toString())
-    val dd = Decoded.decodePassword(passb)
-    Log.i(null,dd.toString())
     val key = blake3(client.kyQ)
     val cipher = XChaCha20Poly1305Cipher()
     val c = cipher.encrypt(passb,key)
     val nonce = c.nonce
-    Log.i(null,c.ciphertext.tostring())
     val ciphertext = c.ciphertext.slice(nonce.size..<c.ciphertext.size).toByteArray()
-    Log.i(null, ciphertext.size.toString())
-    Log.i(null, ciphertext.tostring())
-    Log.i(null, c.nonce.tostring())
     val ep = EP(nonce, null, ciphertext)
     return Result.success(ep)
 }
@@ -54,9 +47,6 @@ fun send(ep: EP, client: Client): EP {
     val c = cipher.encrypt(ep.ciphertext,key)
     val nonce2 = c.nonce
     val ciphertext = c.ciphertext.slice(nonce2.size..<c.ciphertext.size).toByteArray()
-    Log.i(null, ciphertext.size.toString())
-    Log.i(null, ciphertext.tostring())
-    Log.i(null, c.nonce.tostring())
     val ep2 = EP(ep.nonce1, nonce2, ciphertext)
     return ep2
 }
@@ -200,7 +190,6 @@ data class AllPasswords(
 )
 
 fun decryptShared(sharedPass: SharedPass, client: Client): Result<Password> {
-    Log.i(null, sharedPass.kem_ct.size.toString())
     val sharedSecret = MlKem1024().decapsulate(client.kyQ, sharedPass.kem_ct)
     if (sharedSecret.isFailure) {
         return Result.failure(Exception("Erreur serveur: could'nt decapsulate the secret"))
@@ -262,7 +251,6 @@ suspend fun createAccount(email: String): Result<CreateAccountResult> {
             )
 
             val jsonBody = Gson().toJson(clientIdJson)
-            Log.i(null,"Envoi de la requête: $jsonBody")
 
             val request = Request.Builder()
                 .url(API_URL + "create_user_json/")
@@ -271,9 +259,7 @@ suspend fun createAccount(email: String): Result<CreateAccountResult> {
 
             val response = OkHttpClient().newCall(request).execute()
 
-            Log.i(null,"Code de réponse: ${response.code}")
             val responseBody = response.body?.string()
-            Log.i(null,"Corps de la réponse: $responseBody")
 
             if (!response.isSuccessful) {
                 return@withContext Result.failure(Exception("Erreur serveur: ${response.code} - ${response.message}"))
@@ -321,11 +307,9 @@ suspend fun createAccount(email: String): Result<CreateAccountResult> {
                 val result = CreateAccountResult(clientEx, encodedClientEx)
                 Result.success(result)
             } catch (e: Exception) {
-                Log.i(null,"Erreur de parsing JSON: ${e.message}")
                 Result.failure(Exception("Erreur de parsing de la réponse: ${e.message}", e))
             }
         } catch (e: Exception) {
-            Log.i(null,"Exception: ${e.message}")
             e.printStackTrace()
             Result.failure(Exception("Erreur lors de la création du compte: ${e.message}", e))
         }
@@ -426,7 +410,6 @@ suspend fun getAll(token: String, uuid: Uuid, client: Client): Result<AllPasswor
                 }
                 if (r != null) {
                     if (r.isFailure) {
-                        Log.i(null, "Decrypt failed")
                         null
                     }
                 }
@@ -435,16 +418,12 @@ suspend fun getAll(token: String, uuid: Uuid, client: Client): Result<AllPasswor
                 Pair(z, uuid2) as Pair<Password, Uuid>
         }.filter { it -> it != null }.collect(Collectors.toList()).toTypedArray()
         val shared = responseJson["shared_passes"] as ArrayList<ArrayList<*>>
-        Log.i(null, shared.size.toString())
         val s = shared.parallelStream().map { d ->
             val id = d[1] as String
             val id2 = d[2] as String
             val uuid2 = createUuid(id)
             val uuid3 = createUuid(id2)
             val ee = d[0] as LinkedTreeMap<String, *>
-            Log.i(null, ee["kem_ct"].toString())
-            Log.i(null, ee["ep"].toString())
-            Log.i(null, ee["status"].toString())
             val kem_ct = ee["kem_ct"] as ArrayList<Int>
             val eep = ee["ep"] as LinkedTreeMap<String, *>
             val nonce = eep["nonce"] as ArrayList<Int>
@@ -453,7 +432,6 @@ suspend fun getAll(token: String, uuid: Uuid, client: Client): Result<AllPasswor
             val status = SharedStatusfromInt((ee["status"] as Double).toInt())
             val ep = EP(nonce.toByteArray(), nonce2, ciphertext.toByteArray())
             val sharedPass = SharedPass(kem_ct.toByteArray(), ep, status!!)
-            Log.i(null,sharedPass.toString())
             val pass = decryptShared(sharedPass, client)
             if (pass.isFailure) {
                 null
@@ -578,7 +556,6 @@ suspend fun updatePass(token: String, uuid: Uuid, passUuid: Uuid, pass: Password
                 .build()
                 
             val response = OkHttpClient().newCall(request).execute()
-            Log.i(null, response.message)
             if (!response.isSuccessful) {
                 return@withContext Result.failure(Exception("Erreur serveur: ${response.code} - ${response.message}"))
             }
@@ -982,7 +959,6 @@ suspend fun getUuidsFromEmails(token: String, emails: List<String>): Result<List
 suspend fun getEmailsFromUuids(token: String, uuids: List<Uuid>): Result<List<String>> {
     return withContext(Dispatchers.IO) {
         try {
-            Log.i(null, uuids.toString())
             val uuidStrings = uuids.map { it.toString() }
             val jsonBody = Gson().toJson(uuidStrings)
             
@@ -1002,7 +978,6 @@ suspend fun getEmailsFromUuids(token: String, uuids: List<Uuid>): Result<List<St
             if (responseBody.isNullOrEmpty()) {
                 return@withContext Result.failure(Exception("Réponse vide du serveur"))
             }
-            Log.i(null, responseBody)
             
             val emails = Gson().fromJson(responseBody, Array<String>::class.java).toList()
             Result.success(emails)

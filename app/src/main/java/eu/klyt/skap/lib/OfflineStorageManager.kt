@@ -108,55 +108,43 @@ class OfflineStorageManager private constructor(private val context: Context) {
     ): Result<Unit> {
         return try {
             val kyQ = clientEx.c.kyQ
-            Log.d("OfflineStorage", "Starting saveOfflineData - passwords: ${passwords.size}, sharedPasswords: ${sharedPasswords.size}")
-            Log.d("OfflineStorage", "User email: $userEmail, Client ID: $clientId")
-            Log.d("OfflineStorage", "kyQ key hash: ${blake3(kyQ).take(8).joinToString("") { "%02x".format(it) }}")
-            
             if (kyQ.isEmpty()) {
-                Log.e("OfflineStorage", "Invalid encryption key provided - kyQ is empty")
+                Log.e("OfflineStorage", "Invalid encryption key provided")
                 return Result.failure(Exception("Invalid encryption key provided"))
             }
             
             // Encode and store ClientEx for consistent key usage
             val encoder = BincodeEncoder()
             val encodedClientEx = encoder.encodeClientEx(clientEx)
-            Log.d("OfflineStorage", "ClientEx encoded successfully - ${encodedClientEx.size} bytes")
             
             if (passwords.isEmpty() && sharedPasswords.isEmpty()) {
                 Log.w("OfflineStorage", "No data to save offline")
                 return Result.success(Unit)
             }
             val encryptionKey = blake3(kyQ)
-            Log.d("OfflineStorage", "Encryption key generated successfully")
             
             // Encrypt and serialize passwords
-            Log.d("OfflineStorage", "Starting password encryption for ${passwords.size} passwords")
             val encryptedPasswords = passwords.mapIndexed { index, (password, uuid) ->
                 try {
-                    Log.d("OfflineStorage", "Encrypting password $index: ${password.username} for ${password.url ?: password.app_id}")
                     val encoder = BincodeEncoder()
                     val passwordBytes = encoder.encodePassword(password)
-                    Log.d("OfflineStorage", "Password encoded to ${passwordBytes.size} bytes")
                     val encryptionResult = cipher.encrypt(passwordBytes, encryptionKey)
-                    Log.d("OfflineStorage", "Password encrypted - ciphertext: ${encryptionResult.ciphertext.size} bytes, nonce: ${encryptionResult.nonce.size} bytes")
                     val encryptedData = gson.toJson(mapOf(
                         "ciphertext" to encryptionResult.ciphertext.toUint8Array(),
                         "nonce" to encryptionResult.nonce.toUint8Array()
                     ))
-                    Log.d("OfflineStorage", "Password $index serialized successfully")
+                    // Password serialized successfully
                     Pair(encryptedData, uuid.toString())
                 } catch (e: Exception) {
                     Log.e("OfflineStorage", "Failed to encrypt password $index", e)
                     throw e
                 }
             }
-            Log.d("OfflineStorage", "All passwords encrypted successfully")
             
             // Encrypt and serialize shared passwords
-            Log.d("OfflineStorage", "Starting shared password encryption for ${sharedPasswords.size} shared passwords")
             val encryptedSharedPasswords = sharedPasswords.mapIndexed { index, (password, uuid, sharerUuid, status) ->
                 try {
-                    Log.d("OfflineStorage", "Encrypting shared password $index: ${password.username} (status: $status)")
+                    // Encrypting shared password
                     val encoder = BincodeEncoder()
                     val passwordBytes = encoder.encodePassword(password)
                     val encryptionResult = cipher.encrypt(passwordBytes, encryptionKey)
@@ -164,7 +152,7 @@ class OfflineStorageManager private constructor(private val context: Context) {
                         "ciphertext" to encryptionResult.ciphertext.toUint8Array(),
                         "nonce" to encryptionResult.nonce.toUint8Array()
                     ))
-                    Log.d("OfflineStorage", "Shared password $index encrypted successfully")
+                    // Shared password encrypted successfully
                     Quadruple(
                         encryptedData,
                         uuid.toString(),
@@ -180,14 +168,11 @@ class OfflineStorageManager private constructor(private val context: Context) {
                     throw e
                 }
             }
-            Log.d("OfflineStorage", "All shared passwords encrypted successfully")
             
             val offlineData = OfflinePasswordData(encryptedPasswords, encryptedSharedPasswords)
             val serializedData = gson.toJson(offlineData)
-            Log.d("OfflineStorage", "Serialized data size: ${serializedData.length} characters")
             
             // Save to encrypted preferences
-            Log.d("OfflineStorage", "Saving to encrypted preferences...")
             val editor = encryptedPrefs.edit()
             editor.putString(KEY_ENCRYPTED_PASSWORDS, serializedData)
             editor.putString(KEY_USER_EMAIL, userEmail)
@@ -200,10 +185,7 @@ class OfflineStorageManager private constructor(private val context: Context) {
                 
                 // Immediate verification
                 val verificationData = encryptedPrefs.getString(KEY_ENCRYPTED_PASSWORDS, null)
-                if (verificationData != null) {
-                    Log.d("OfflineStorage", "Verification successful - data exists in preferences")
-                    Log.d("OfflineStorage", "Stored data size: ${verificationData.length} characters")
-                } else {
+                if (verificationData == null) {
                     Log.e("OfflineStorage", "Verification failed - no data found after saving")
                     return Result.failure(Exception("Data verification failed after saving"))
                 }
@@ -225,7 +207,7 @@ class OfflineStorageManager private constructor(private val context: Context) {
      */
     fun loadOfflineData(): Result<Pair<List<Pair<Password, Uuid>>, List<Quadruple<Password, Uuid, Uuid, ShareStatus>>>> {
         return try {
-            Log.d("OfflineStorage", "Starting loadOfflineData")
+            // Starting loadOfflineData
             
             // Retrieve and decode stored ClientEx
             val encodedClientExString = encryptedPrefs.getString(KEY_CLIENT_EX, null)
@@ -242,8 +224,7 @@ class OfflineStorageManager private constructor(private val context: Context) {
             }
             
             val kyQ = clientEx.c.kyQ
-            Log.d("OfflineStorage", "ClientEx decoded successfully")
-            Log.d("OfflineStorage", "kyQ key hash: ${blake3(kyQ).take(8).joinToString("") { "%02x".format(it) }}")
+            // ClientEx decoded successfully
             
             if (kyQ.isEmpty()) {
                 Log.e("OfflineStorage", "Invalid decryption key - kyQ is empty")
@@ -255,19 +236,15 @@ class OfflineStorageManager private constructor(private val context: Context) {
                 return Result.failure(Exception("No offline data available"))
             }
             
-            Log.d("OfflineStorage", "Retrieving serialized data from encrypted preferences...")
             val serializedData = encryptedPrefs.getString(KEY_ENCRYPTED_PASSWORDS, null)
             if (serializedData == null) {
                 Log.e("OfflineStorage", "No offline data found in encrypted preferences")
                 return Result.failure(Exception("No offline data found"))
             }
             
-            Log.d("OfflineStorage", "Retrieved serialized data - size: ${serializedData.length} characters")
-            
             val encryptionKey = blake3(kyQ)
-            Log.d("OfflineStorage", "Decryption key generated successfully")
             
-            Log.d("OfflineStorage", "Parsing JSON data...")
+            // Parsing JSON data
             val offlineData = try {
                 gson.fromJson(serializedData, OfflinePasswordData::class.java)
             } catch (e: Exception) {
@@ -275,27 +252,20 @@ class OfflineStorageManager private constructor(private val context: Context) {
                 throw Exception("Failed to parse offline data: ${e.message}", e)
             }
             
-            Log.d("OfflineStorage", "Parsed offline data - passwords: ${offlineData.passwords.size}, sharedPasswords: ${offlineData.sharedPasswords.size}")
             
             // Decrypt passwords
-            Log.d("OfflineStorage", "Starting password decryption for ${offlineData.passwords.size} passwords")
             val passwords = offlineData.passwords.mapIndexedNotNull { index, (encryptedData, uuidString) ->
                 try {
-                    Log.d("OfflineStorage", "Decrypting password $index (UUID: $uuidString)")
                     val encryptedMap = gson.fromJson(encryptedData, Map::class.java) as Map<String, List<Double>>
                     val ciphertext = encryptedMap["ciphertext"]!!.map { it.toInt().toByte() }.toByteArray()
                     val nonce = encryptedMap["nonce"]!!.map { it.toInt().toByte() }.toByteArray()
                     
-                    Log.d("OfflineStorage", "Password $index - ciphertext: ${ciphertext.size} bytes, nonce: ${nonce.size} bytes")
-                    
                     val decryptedBytes = cipher.decrypt(ciphertext, nonce, encryptionKey)
-                    Log.d("OfflineStorage", "Password $index decrypted - ${decryptedBytes.size} bytes")
                     
                     val password = Decoded.decodePassword(decryptedBytes)
                     val uuid = createUuid(uuidString)
                     
                     if (password != null) {
-                        Log.d("OfflineStorage", "Password $index decoded successfully: ${password.username} for ${password.url ?: password.app_id}")
                         Pair(password, uuid)
                     } else {
                         Log.w("OfflineStorage", "Failed to decode password for UUID: $uuidString")
@@ -306,13 +276,11 @@ class OfflineStorageManager private constructor(private val context: Context) {
                     null
                 }
             }
-            Log.d("OfflineStorage", "Password decryption completed - ${passwords.size} passwords successfully decrypted")
             
             // Decrypt shared passwords
-            Log.d("OfflineStorage", "Starting shared password decryption for ${offlineData.sharedPasswords.size} shared passwords")
             val sharedPasswords = offlineData.sharedPasswords.mapIndexedNotNull { index, (encryptedData, uuidString, sharerUuidString, statusInt) ->
                 try {
-                    Log.d("OfflineStorage", "Decrypting shared password $index (UUID: $uuidString, status: $statusInt)")
+                    // Decrypting shared password
                     val encryptedMap = gson.fromJson(encryptedData, Map::class.java) as Map<String, List<Double>>
                     val ciphertext = encryptedMap["ciphertext"]!!.map { it.toInt().toByte() }.toByteArray()
                     val nonce = encryptedMap["nonce"]!!.map { it.toInt().toByte() }.toByteArray()
@@ -329,7 +297,7 @@ class OfflineStorageManager private constructor(private val context: Context) {
                     }
                     
                     if (password != null) {
-                        Log.d("OfflineStorage", "Shared password $index decoded successfully: ${password.username} (status: $status)")
+                        // Shared password decoded successfully
                         Quadruple(password, uuid, sharerUuid, status)
                     } else {
                         Log.w("OfflineStorage", "Failed to decode shared password for UUID: $uuidString")
