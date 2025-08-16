@@ -95,6 +95,9 @@ import eu.klyt.skap.lib.PasswordSecurityAuditor
 import eu.klyt.skap.lib.GlobalSecurityAuditResult
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.BugReport
 
 class VaultActivity : ComponentActivity() {
     private var clientEx: ClientEx? = null
@@ -156,6 +159,11 @@ fun VaultScreen(
     val context = LocalContext.current
     var language by remember { mutableStateOf(getLanguagePreference(context)) }
     val translations = getTranslations(language)
+    
+    // État pour le mode hors ligne
+    val offlineStorageManager = remember { OfflineStorageManager.getInstance(context) }
+    var isOfflineModeEnabled by remember { mutableStateOf(offlineStorageManager.isOfflineModeEnabled()) }
+    var showOfflineConfirmDialog by remember { mutableStateOf(false) }
 
     // État pour les mots de passe
     var passwords by remember { mutableStateOf<List<Pair<Password, Uuid>>>(emptyList()) }
@@ -183,6 +191,9 @@ fun VaultScreen(
     var showSecurityAuditModal by remember { mutableStateOf(false) }
     var isSecurityAuditLoading by remember { mutableStateOf(false) }
     var securityAuditResult by remember { mutableStateOf<GlobalSecurityAuditResult?>(null) }
+    
+    // État pour le debug hors ligne
+    var showOfflineDebugDialog by remember { mutableStateOf(false) }
 
     // État pour la recherche
     var searchQuery by remember { mutableStateOf("") }
@@ -467,6 +478,107 @@ fun VaultScreen(
                                 imageVector = Icons.Default.Refresh,
                                 contentDescription = null,
                                 tint = accentColor1
+                            )
+                        }
+                    },
+                    colors = MenuDefaults.itemColors(
+                        textColor = Color.White,
+                        leadingIconColor = Color.White,
+                        trailingIconColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                )
+
+                Divider(
+                    color = Color.White.copy(alpha = 0.2f),
+                    thickness = 1.dp,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+
+                // Option pour le mode hors ligne
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = if (language == "fr") "Mode hors ligne" else "Offline Mode",
+                            color = Color.White,
+                            fontSize = 15.sp
+                        )
+                    },
+                    onClick = {
+                        if (isOfflineModeEnabled) {
+                            // Désactiver le mode hors ligne
+                            offlineStorageManager.setOfflineModeEnabled(false)
+                            offlineStorageManager.clearOfflineData()
+                            isOfflineModeEnabled = false
+                            Toast.makeText(
+                                context,
+                                if (language == "fr") "Mode hors ligne désactivé" else "Offline mode disabled",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            // Activer le mode hors ligne avec confirmation
+                            showOfflineConfirmDialog = true
+                        }
+                        showProfileMenu = false
+                    },
+                    leadingIcon = {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .background(
+                                    if (isOfflineModeEnabled) accentColor2.copy(alpha = 0.2f) else secondaryTextColor.copy(alpha = 0.2f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isOfflineModeEnabled) Icons.Default.CloudOff else Icons.Default.CloudQueue,
+                                contentDescription = null,
+                                tint = if (isOfflineModeEnabled) accentColor2 else secondaryTextColor
+                            )
+                        }
+                    },
+                    colors = MenuDefaults.itemColors(
+                        textColor = Color.White,
+                        leadingIconColor = Color.White,
+                        trailingIconColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                )
+
+                // Debug option for offline storage
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = if (language == "fr") "Debug hors ligne" else "Offline Debug",
+                            color = Color.White,
+                            fontSize = 15.sp
+                        )
+                    },
+                    onClick = {
+                        showOfflineDebugDialog = true
+                        showProfileMenu = false
+                    },
+                    leadingIcon = {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .background(
+                                    Color.Yellow.copy(alpha = 0.2f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.BugReport,
+                                contentDescription = null,
+                                tint = Color.Yellow
                             )
                         }
                     },
@@ -1041,6 +1153,202 @@ fun VaultScreen(
             language = language,
             passwords = passwords.map { (password, uuid) -> uuid.toString() to password.password }.toMap(),
             onDismiss = { showSecurityAuditModal = false }
+        )
+    }
+    
+    // Dialogue de confirmation pour le mode hors ligne
+    if (showOfflineConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showOfflineConfirmDialog = false },
+            title = {
+                Text(
+                    text = if (language == "fr") "Activer le mode hors ligne" else "Enable Offline Mode",
+                    color = Color.White
+                )
+            },
+            text = {
+                Text(
+                    text = if (language == "fr") 
+                        "Cela sauvegardera tous vos mots de passe de manière sécurisée sur cet appareil. Vous pourrez y accéder même sans connexion Internet. Continuer ?"
+                    else
+                        "This will securely save all your passwords on this device. You'll be able to access them even without an internet connection. Continue?",
+                    color = Color.White
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                             try {
+                                 val userEmail = clientEx.id.email
+                                 val clientId = clientEx.id.id?.toString() ?: ""
+                                 
+                                 if (passwords.isEmpty() && pendingSharedPasswords.filter { it.fourth == ShareStatus.Accepted }.isEmpty()) {
+                                     Toast.makeText(
+                                         context,
+                                         if (language == "fr") "Aucune donnée à sauvegarder" else "No data to save",
+                                         Toast.LENGTH_SHORT
+                                     ).show()
+                                     return@launch
+                                 }
+                                 
+                                 val result = offlineStorageManager.saveOfflineData(
+                                     passwords = passwords,
+                                     sharedPasswords = pendingSharedPasswords.filter { it.fourth == ShareStatus.Accepted },
+                                     userEmail = userEmail,
+                                     clientId = clientId,
+                                     clientEx = clientEx
+                                 )
+                                 
+                                 if (result.isSuccess) {
+                                     offlineStorageManager.setOfflineModeEnabled(true)
+                                     isOfflineModeEnabled = true
+                                     Toast.makeText(
+                                         context,
+                                         if (language == "fr") "Mode hors ligne activé - ${passwords.size} mots de passe sauvegardés" else "Offline mode enabled - ${passwords.size} passwords saved",
+                                         Toast.LENGTH_SHORT
+                                     ).show()
+                                 } else {
+                                     val errorMessage = result.exceptionOrNull()?.message ?: "Unknown error"
+                                     Toast.makeText(
+                                         context,
+                                         if (language == "fr") "Erreur lors de l'activation: $errorMessage" else "Error enabling offline mode: $errorMessage",
+                                         Toast.LENGTH_LONG
+                                     ).show()
+                                     Log.e("OfflineMode", "Failed to save offline data", result.exceptionOrNull())
+                                 }
+                             } catch (e: Exception) {
+                                 Toast.makeText(
+                                     context,
+                                     if (language == "fr") "Erreur inattendue: ${e.message}" else "Unexpected error: ${e.message}",
+                                     Toast.LENGTH_LONG
+                                 ).show()
+                                 Log.e("OfflineMode", "Unexpected error during offline mode activation", e)
+                             }
+                         }
+                        showOfflineConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = accentColor2
+                    )
+                ) {
+                    Text(
+                        text = if (language == "fr") "Activer" else "Enable",
+                        color = Color.Black
+                    )
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showOfflineConfirmDialog = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = secondaryTextColor
+                    )
+                ) {
+                    Text(
+                        text = if (language == "fr") "Annuler" else "Cancel",
+                        color = Color.White
+                    )
+                }
+            },
+            containerColor = backgroundColor,
+            titleContentColor = Color.White,
+            textContentColor = Color.White
+        )
+    }
+    
+    // Dialogue de debug pour le mode hors ligne
+    if (showOfflineDebugDialog) {
+        var debugInfo by remember { mutableStateOf("Loading debug info...") }
+        
+        // Capture current values
+        val currentPasswordsSize = passwords.size
+        val currentSharedPasswordsSize = pendingSharedPasswords.filter { it.fourth == ShareStatus.Accepted }.size
+        
+        LaunchedEffect(Unit) {
+            try {
+                val hasOfflineData = offlineStorageManager.hasOfflineData()
+                val isEnabled = offlineStorageManager.isOfflineModeEnabled()
+                val userEmail = offlineStorageManager.getUserEmail()
+                val clientId = offlineStorageManager.getClientId()
+                
+                // Try to get stored data info
+                val kyQHash = try {
+                    val hash = clientEx.c.kyQ.contentHashCode()
+                    "Hash: $hash"
+                } catch (e: Exception) {
+                    "Error getting kyQ hash: ${e.message}"
+                }
+                
+                val loadResult = try {
+                    val result = offlineStorageManager.loadOfflineData()
+                    if (result.isSuccess) {
+                        val data = result.getOrNull()
+                        "Load Success: ${data?.first?.size ?: 0} passwords, ${data?.second?.size ?: 0} shared"
+                    } else {
+                        "Load Failed: ${result.exceptionOrNull()?.message}"
+                    }
+                } catch (e: Exception) {
+                    "Load Exception: ${e.message}"
+                }
+                
+                debugInfo = buildString {
+                    appendLine("=== OFFLINE DEBUG INFO ===")
+                    appendLine("Offline Mode Enabled: $isEnabled")
+                    appendLine("Has Offline Data: $hasOfflineData")
+                    appendLine("User Email: $userEmail")
+                    appendLine("Client ID: $clientId")
+                    appendLine("kyQ Key $kyQHash")
+                    appendLine("")
+                    appendLine("=== LOAD TEST ===")
+                    appendLine(loadResult)
+                    appendLine("")
+                    appendLine("=== CURRENT SESSION ===")
+                    appendLine("Passwords in memory: $currentPasswordsSize")
+                    appendLine("Shared passwords: $currentSharedPasswordsSize")
+                }
+            } catch (e: Exception) {
+                debugInfo = "Error getting debug info: ${e.message}"
+            }
+        }
+        
+        AlertDialog(
+            onDismissRequest = { showOfflineDebugDialog = false },
+            title = {
+                Text(
+                    text = if (language == "fr") "Debug Mode Hors Ligne" else "Offline Mode Debug",
+                    color = Color.White
+                )
+            },
+            text = {
+                LazyColumn {
+                    item {
+                        Text(
+                            text = debugInfo,
+                            color = Color.White,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showOfflineDebugDialog = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = accentColor2
+                    )
+                ) {
+                    Text(
+                        text = if (language == "fr") "Fermer" else "Close",
+                        color = Color.Black
+                    )
+                }
+            },
+            containerColor = backgroundColor,
+            titleContentColor = Color.White,
+            textContentColor = Color.White,
+            modifier = Modifier.fillMaxWidth(0.9f)
         )
     }
 }
@@ -3960,4 +4268,4 @@ fun SecurityStatItem(
             fontSize = 14.sp
         )
     }
-} 
+}

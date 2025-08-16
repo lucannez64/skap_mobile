@@ -61,6 +61,9 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.otp)
     implementation(libs.nbvcxz)
+    
+    // Security for offline storage
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

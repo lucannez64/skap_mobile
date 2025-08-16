@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools" >
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:allowBackup="true"
@@ -29,6 +30,11 @@
             android:name=".VaultActivity"
             android:exported="false"
             android:label="@string/vault_name"
+            android:theme="@style/Theme.Skap" />
+        <activity
+            android:name=".OfflineVaultActivity"
+            android:exported="false"
+            android:label="@string/offline_vault_name"
             android:theme="@style/Theme.Skap" />
     </application>
 

@@ -24,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +62,9 @@ import androidx.core.content.edit
 import com.google.gson.Gson
 import eu.klyt.skap.lib.BincodeEncoder
 import eu.klyt.skap.lib.ClientEx
+import eu.klyt.skap.lib.OfflineStorageManager
+import eu.klyt.skap.lib.rememberNetworkConnectivityState
+import androidx.compose.material.icons.filled.CloudOff
 import kotlinx.coroutines.CoroutineScope
 
 var encodedFile: ByteArray? = null
@@ -220,6 +224,12 @@ fun LoginRegisterScreen(onLoginSuccess: (ClientEx, String) -> Unit) {
     val context = LocalContext.current
     var language by remember { mutableStateOf(getLanguagePreference(context)) }
     val translations = getTranslations(language)
+    
+    // État pour la connectivité réseau
+    val isConnected = rememberNetworkConnectivityState()
+    val offlineStorageManager = remember { OfflineStorageManager.getInstance(context) }
+    val hasOfflineData = remember { offlineStorageManager.hasOfflineData() }
+    val isOfflineModeEnabled = remember { offlineStorageManager.isOfflineModeEnabled() }
     
     // État pour le formulaire
     var showRegisterForm by remember { mutableStateOf(false) }
@@ -604,6 +614,41 @@ fun LoginRegisterScreen(onLoginSuccess: (ClientEx, String) -> Unit) {
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Medium
                                 )
+                            }
+                            
+                            // Bouton hors ligne (affiché si des données hors ligne sont disponibles)
+                            if (hasOfflineData && isOfflineModeEnabled) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                Button(
+                                    onClick = {
+                                        // Naviguer vers l'écran hors ligne
+                                        val intent = Intent(context, OfflineVaultActivity::class.java)
+                                        context.startActivity(intent)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = primaryTextColor
+                                    ),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .shadow(4.dp, RoundedCornerShape(6.dp))
+                                ) {
+                                    Icon(
+                                        imageVector = if (isConnected) Icons.Default.Storage else Icons.Default.CloudOff,
+                                        contentDescription = null,
+                                        tint = accentColor1,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (language == "fr") "Accéder aux mots de passe sauvegardés" else "Access Saved Passwords",
+                                        color = accentColor1,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                             
                             // Messages de statut

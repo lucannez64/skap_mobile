@@ -46,7 +46,7 @@ class XChaCha20Poly1305Cipher {
         val aead = XChaCha20Poly1305.create(tinkKey)
         val c = aead.encrypt(plaintext, ByteArray(0))
         val nonce = c.copyOf(NONCE_SIZE)
-        val ciphertext = ByteBuffer.wrap(c, NONCE_SIZE, c.size- NONCE_SIZE).array()
+        val ciphertext = c.copyOfRange(NONCE_SIZE, c.size)
 
 
         return EncryptionResult(ciphertext, nonce)
