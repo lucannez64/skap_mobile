@@ -5,9 +5,15 @@ import eu.klyt.skap.lib.createAccount
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
+import android.content.ComponentName
+import android.os.Build
+import android.view.autofill.AutofillManager
+import eu.klyt.skap.autofill.SkapAutofillService
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -74,7 +80,7 @@ const val REQUEST_SAVE_FILE = 42
 const val PREFS_NAME = "SkapPrefs"
 const val PREF_LANGUAGE = "language"
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -86,11 +92,55 @@ class MainActivity : ComponentActivity() {
                 ) {
                     LoginRegisterScreen(
                         onLoginSuccess = { clientEx, token ->
+                            Log.d("MainActivity", "onLoginSuccess: starting post-login flow")
+                            val selectedService = android.provider.Settings.Secure.getString(this.contentResolver, "autofill_service")
+                            Log.d("MainActivity", "Selected autofill service=${selectedService ?: "null"}")
+
+                            val shouldPrompt = shouldPromptToEnableOurAutofill(this)
+                            Log.d(
+                                "MainActivity",
+                                "Autofill status: shouldPrompt=$shouldPrompt, enabled=${isAutofillServiceEnabled(this)}, oursSelected=${isOurAutofillServiceSelected(this)}"
+                            )
+                            if (shouldPrompt) {
+                                Log.d("MainActivity", "Prompting user to enable/select our Autofill service")
+                                requestAutofillServicePermission(this)
+                                return@LoginRegisterScreen
+                            }
+
+                            // If our Autofill service is selected, sync the local Autofill DB
+                            if (isOurAutofillServiceSelected(this)) {
+                                Log.d("MainActivity", "Our Autofill service selected; starting DB sync")
+                                lifecycleScope.launch {
+                                    try {
+                                        Log.d("MainActivity", "Invoking AutofillLoginSync.run")
+                                        val syncResult = eu.klyt.skap.autofill.AutofillLoginSync.run(this@MainActivity, clientEx, token)
+                                        syncResult.fold(
+                                            onSuccess = { count ->
+                                                Log.d("MainActivity", "Autofill DB sync completed with $count credentials")
+                                                Toast.makeText(
+                                                    this@MainActivity,
+                                                    "Autofill database synced ($count)",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            },
+                                            onFailure = { e ->
+                                                Log.e("MainActivity", "Autofill DB sync failed: ${e.message}", e)
+                                            }
+                                        )
+                                    } catch (t: Throwable) {
+                                        Log.e("MainActivity", "Autofill DB sync error", t)
+                                    }
+                                }
+                            } else {
+                                Log.d("MainActivity", "Our Autofill service NOT selected; skipping DB sync")
+                            }
+
                             // Lancer VaultActivity avec le ClientEx et le token
                             val intent = Intent(this, VaultActivity::class.java).apply {
                                 putExtra("client_ex_bytes", encoderClientEx(clientEx))
                                 putExtra("token", token)
                             }
+                            Log.d("MainActivity", "Starting VaultActivity")
                             startActivity(intent)
                         }
                     )
@@ -884,4 +934,31 @@ fun LoginRegisterScreenPreview() {
     SkapTheme {
         LoginRegisterScreen(onLoginSuccess = { _, _ -> })
     }
+}
+
+fun requestAutofillServicePermission(context: Context) {
+    val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
+        data = Uri.parse("package:${context.packageName}")
+    }
+    context.startActivity(intent)
+}
+
+fun isOurAutofillServiceSelected(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+    val selected = Settings.Secure.getString(context.contentResolver, "autofill_service") ?: return false
+    val ours = ComponentName(context, SkapAutofillService::class.java).flattenToString()
+    return selected == ours
+}
+
+fun shouldPromptToEnableOurAutofill(context: Context): Boolean {
+    val afm = context.getSystemService(AutofillManager::class.java)
+    val supported = afm?.isAutofillSupported == true
+    val enabled = afm?.isEnabled == true
+    val oursSelected = isOurAutofillServiceSelected(context)
+    return supported && (!enabled || !oursSelected)
+}
+
+fun isAutofillServiceEnabled(context: Context): Boolean {
+    val afm = context.getSystemService(AutofillManager::class.java)
+    return afm?.hasEnabledAutofillServices() == true
 }

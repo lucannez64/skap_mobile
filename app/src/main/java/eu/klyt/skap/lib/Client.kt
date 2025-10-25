@@ -35,9 +35,7 @@ fun encrypt(pass: Password, client: Client): Result<EP> {
     val key = blake3(client.kyQ)
     val cipher = XChaCha20Poly1305Cipher()
     val c = cipher.encrypt(passb,key)
-    val nonce = c.nonce
-    val ciphertext = c.ciphertext.slice(nonce.size..<c.ciphertext.size).toByteArray()
-    val ep = EP(nonce, null, ciphertext)
+    val ep = EP(c.nonce, null, c.ciphertext)
     return Result.success(ep)
 }
 
@@ -45,9 +43,7 @@ fun send(ep: EP, client: Client): EP {
     val key = blake3(client.secret!!)
     val cipher = XChaCha20Poly1305Cipher()
     val c = cipher.encrypt(ep.ciphertext,key)
-    val nonce2 = c.nonce
-    val ciphertext = c.ciphertext.slice(nonce2.size..<c.ciphertext.size).toByteArray()
-    val ep2 = EP(ep.nonce1, nonce2, ciphertext)
+    val ep2 = EP(ep.nonce1, c.nonce, c.ciphertext)
     return ep2
 }
 
@@ -196,8 +192,8 @@ fun decryptShared(sharedPass: SharedPass, client: Client): Result<Password> {
     }
     val secretKey = blake3(sharedSecret.getOrNull()!!)
     val cipher = XChaCha20Poly1305Cipher()
-    val nonce = sharedPass.ep.ciphertext.slice(0..23).toByteArray()
-    val ciphertext = sharedPass.ep.ciphertext.slice(24..sharedPass.ep.ciphertext.size-1).toByteArray()
+    val nonce = sharedPass.ep.nonce1
+    val ciphertext = sharedPass.ep.ciphertext
     val plaintext = cipher.decrypt(ciphertext,nonce,secretKey)
     val pass = Decoded.decodePassword(plaintext)
     return if (pass == null) {

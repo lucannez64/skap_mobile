@@ -2,4 +2,5 @@
     <string name="app_name">Skap</string>
     <string name="vault_name">Coffre-fort</string>
     <string name="offline_vault_name">Mode hors ligne</string>
+    <string name="autofill_service_label">Skap Autofill Service</string>
 </resources>

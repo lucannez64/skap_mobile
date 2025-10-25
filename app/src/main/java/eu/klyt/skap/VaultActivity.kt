@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -59,6 +60,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import eu.klyt.skap.lib.*
 import eu.klyt.skap.ui.theme.SkapTheme
+import eu.klyt.skap.autofill.AutofillLoginSync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -78,6 +80,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.CancellationException
@@ -99,7 +102,7 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.BugReport
 
-class VaultActivity : ComponentActivity() {
+class VaultActivity : AppCompatActivity() {
     private var clientEx: ClientEx? = null
     private var token: String? = null
 
@@ -204,6 +207,7 @@ fun VaultScreen(
     var newRecord by remember { mutableStateOf(Password("", null, "", null, null, null)) }
 
     val coroutineScope = rememberCoroutineScope()
+    var autofillSyncStarted by remember { mutableStateOf(false) }
 
     // Charger les mots de passe
     LaunchedEffect(Unit) {
@@ -224,6 +228,27 @@ fun VaultScreen(
                     it.fourth == ShareStatus.Accepted
                 }.map { it -> Pair(it.first, it.second) }
                 isLoading = false
+
+                // Déclencher la synchronisation Autofill juste après le chargement
+                if (!autofillSyncStarted && isOurAutofillServiceSelected(context)) {
+                    autofillSyncStarted = true
+                    (context as? AppCompatActivity)?.lifecycleScope?.launch {
+                        try {
+                            Log.d("VaultActivity", "Triggering Autofill sync with ${passwords.size} loaded passwords")
+                            val result = AutofillLoginSync.runWithPasswords(context as AppCompatActivity, passwords)
+                            result.fold(
+                                onSuccess = { count ->
+                                    Log.d("VaultActivity", "Autofill sync completed: $count records")
+                                },
+                                onFailure = { e ->
+                                    Log.e("VaultActivity", "Autofill sync failed: ${e.message}", e)
+                                }
+                            )
+                        } catch (t: Throwable) {
+                            Log.e("VaultActivity", "Autofill sync error", t)
+                        }
+                    }
+                }
 
                 // Charger les informations de partage
                 loadSharedInfo(
